@@ -37,7 +37,7 @@ A customized [Herdr](https://herdr.dev) desktop layout (`main-custom`) and mod s
 
 ### 5. `tmux-prefix` & `picker-copy` — Herdr TUI (`Ctrl+A`) Keybindings
 - Brings Herdr TUI's `Ctrl+A` prefix workflow to Herdr App, reading bindings dynamically from `keys.json` (`mod:tmux-prefix`).
-- Includes repeatable pane navigation (`h/j/k/l`), space/tab switching, side panel toggles (`f` for Files, `d` for Changes, `r` for Git Graph), and `Ctrl+J/K` / `Ctrl+N/P` list navigation across pickers.
+- Includes repeatable pane navigation (`h/j/k/l`), space/tab switching, side panel toggles (`f` for Files, `d` for Changes, `r` for Git Graph, `o` for GitHub), and `Ctrl+J/K` / `Ctrl+N/P` list navigation across pickers.
 
 ### 6. `git-graph` — Branch / Merge Route Map in the Right Panel (`Ctrl+A` → `r`)
 - Draws the commit graph (lanes, merge curves, merge rings) of the repo under the focused pane, newest first (latest 500 commits).
@@ -45,6 +45,16 @@ A customized [Herdr](https://herdr.dev) desktop layout (`main-custom`) and mod s
 - Header toggle switches between **All branches** (local + remote + tags) and **HEAD only**; `↻` forces a refresh. The graph also auto-refreshes every 6s when refs change.
 - Click a commit to open its detail drawer: hash, author, date, message body, changed files (first-parent diff for merges).
 - Lives in the `graph` child of the `panel-body` stack (same slot as Files / Changes). The tab bar is `tabs-plus` (a clone of Herdr's `tabs` with an extra **Graph** button next to Files / Changes; clones are not auto-updated with Herdr's `tabs`).
+
+### 7. `github` — Integrated GitHub Panel, PR Diff/Merge & Issue-to-Worktree (`Ctrl+A` → `o`)
+- Adapted from [`alarboulletmarin/herdr-github`](https://github.com/alarboulletmarin/herdr-github): right-hand panel covering **Issues**, **PRs**, **Actions (CI runs & failure logs)**, **Milestones**, **Projects**, and **Repo overview** (plus cross-repo switching).
+- **88% × 92% PR & Issue Dialog**:
+  - **Conversation & Timeline**: Markdown with inline images, comments, review verdicts, labels, assignees, and close/reopen/comment composer.
+  - **Files Changed (Diff) Tab**: Full two-column file list (`+`/`−` counts) + virtualized unified diff viewer inside the PR dialog.
+  - **Direct PR Merge**: Embedded in `mergeBox` with **Merge commit / Squash and merge / Rebase and merge** confirmation and `--match-head-commit` SHA guard.
+- **1-Click Issue → Herdr Worktree (`spaces-plus` + `worktree-plus` integration)**:
+  - Click the branch icon on any hovered Issue row, or click **Open Worktree** inside the Issue dialog, to automatically create `~/.herdr/worktrees/<repo>/feat/issue-<N>-<slug>`, bind `🎯 #<N>` in `shared("worktree-plus.meta")`, and switch to the new nested Worktree Space.
+  - **Start agent** on an Issue includes a `🌱 在新 Worktree 啟動并綁定 Issue` toggle so the coding agent launches directly inside the isolated Issue Worktree with the full issue brief.
 
 ---
 
@@ -60,6 +70,7 @@ A customized [Herdr](https://herdr.dev) desktop layout (`main-custom`) and mod s
 | `Ctrl+A` → `u` | `status-quota` | Open AI Quota & Reset Countdown drawer |
 | `Ctrl+A` → `f` / `d` | `files` / `changes` | Toggle right-hand Files / Git Changes panel |
 | `Ctrl+A` → `r` | `graph` | Toggle right-hand Git Graph panel |
+| `Ctrl+A` → `o` | `github` | Toggle right-hand GitHub panel (Issues / PRs / Actions) |
 | `Ctrl+A` → `g` / `w` | `picker-copy` | Open Goto Picker (with empty spaces expanded & `Ctrl+J/K` support) |
 | `Ctrl+A` → `m` | `new-menu` | Open New Agent / Tab menu |
 | `Ctrl+A` → `c` / `n` / `p` | `tab.*` | New tab / Next tab / Previous tab |

@@ -79,6 +79,7 @@
     "f": "tmux-prefix.files",
     "d": "tmux-prefix.changes",
     "r": "tmux-prefix.graph",
+    "o": "tmux-prefix.github",
     "u": "tmux-prefix.mod.open:status-quota",
     "a": "tmux-prefix.agent.next",
     "shift-a": "tmux-prefix.agent.prev",
