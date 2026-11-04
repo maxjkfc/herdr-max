@@ -46,6 +46,12 @@ A customized [Herdr](https://herdr.dev) desktop layout (`main-custom`) and mod s
 - Click a commit to open its detail drawer: hash, author, date, message body, changed files (first-parent diff for merges).
 - Lives in the `graph` child of the `panel-body` stack (same slot as Files / Changes). The tab bar is `tabs-plus` (a clone of Herdr's `tabs` with an extra **Graph** button next to Files / Changes; clones are not auto-updated with Herdr's `tabs`).
 
+### 7. `pr-panel` — Pull Requests, Diff & Merge in the Right Panel (`Ctrl+A` → `o`)
+- Lists the repo's PRs via `gh` (Open / Merged / Closed): number, title, branch → base, author, age, CI checks dot, draft / conflict markers. Requires `gh` logged in for the repo.
+- Click a PR to see its description, changed files (`+`/`−` counts) and a per-file diff.
+- **Merge…** opens a method picker (Merge commit / Squash / Rebase); picking one runs `gh pr merge --match-head-commit <sha>` so it refuses if the branch moved since you looked. Disabled for drafts, conflicts, failing or pending checks, and non-open PRs.
+- Lives in the `prs` child of the `panel-body` stack, with a **PRs** button in `tabs-plus`.
+
 ---
 
 ## Keybindings (`Ctrl+A` Prefix & Global)
@@ -60,6 +66,7 @@ A customized [Herdr](https://herdr.dev) desktop layout (`main-custom`) and mod s
 | `Ctrl+A` → `u` | `status-quota` | Open AI Quota & Reset Countdown drawer |
 | `Ctrl+A` → `f` / `d` | `files` / `changes` | Toggle right-hand Files / Git Changes panel |
 | `Ctrl+A` → `r` | `graph` | Toggle right-hand Git Graph panel |
+| `Ctrl+A` → `o` | `prs` | Toggle right-hand Pull Requests panel |
 | `Ctrl+A` → `g` / `w` | `picker-copy` | Open Goto Picker (with empty spaces expanded & `Ctrl+J/K` support) |
 | `Ctrl+A` → `m` | `new-menu` | Open New Agent / Tab menu |
 | `Ctrl+A` → `c` / `n` / `p` | `tab.*` | New tab / Next tab / Previous tab |
