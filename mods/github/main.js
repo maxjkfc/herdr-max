@@ -35,9 +35,12 @@ function find(node, id) {
 }
 // Only the shown panel works; a pane copy always does.
 function hidden() {
-  const root = layout(), body = find(root, "panel-body");
+  const root = layout(), panel = find(root, "panel"), body = find(root, "panel-body"), gitBody = find(root, "git-body");
+  if (!panel) return false;
+  if (panel.hidden) return true;
+  if (gitBody) return body?.active !== "git" || gitBody.active !== "github";
   if (!body?.children?.some((c) => c.content?.mod === "github")) return false;
-  return find(root, "panel")?.hidden || find(body, body.active)?.content?.mod !== "github";
+  return find(body, body.active)?.content?.mod !== "github";
 }
 function location(last) {
   const space = spaces().find((s) => s.active), f = focused();
@@ -264,38 +267,38 @@ export default class GitHub extends View {
     const checks = kind === "pr" && item.statusCheckRollup ? checksOf(item) : null;
     const meta = [`#${item.number}`, this.all() ? item.repo.split("/")[1] : null, kind === "pr" && item.headRefName ? item.headRefName : null, `${String(item.state).toUpperCase() === "OPEN" ? "opened" : "updated"} ${ago(String(item.state).toUpperCase() === "OPEN" ? item.createdAt : item.updatedAt)}`, item.author?.login ? `by ${item.author.login.replace(/^app\//, "")}` : null].filter(Boolean).join(" · ");
     const review = { APPROVED: ["check", p.open, "Approved"], CHANGES_REQUESTED: ["x-circle", p.closed, "Changes requested"] }[item.reviewDecision];
-    return this.hoverable(h_flex().id(key).relative().flex_none().px(12).py(9).gap(10).items_start().border_b(1).border_color(t.border).cursor_pointer()
+    return this.hoverable(h_flex().id(key).relative().flex_none().px(14).py(10).gap(10).items_start().border_b(1).border_color(t.border).cursor_pointer()
       .bg(hovered ? t.hover : "#00000000")
       .on_click(() => this.open(item, kind))
       .on_mouse_down("right", () => this.copyItem(item))
       .child(div().pt(2).child(glyph(g, 16, color)))
-      .child(v_flex().flex_1().min_w(0).gap(4)
-        .child(div().text_size(13).font_semibold().text_color(t.foreground).child(item.title))
-        .child(div().text_size(11.5).text_color(t.muted).child(meta))
+      .child(v_flex().flex_1().min_w(0).gap(5)
+        .child(div().text_size(14.5).font_semibold().text_color(t.foreground).child(item.title))
+        .child(div().text_size(12.5).text_color(t.muted).child(meta))
         // Labels on their own row: sharing the meta's row, the last one wrapped alone.
-        .when(item.labels?.length > 0, (e) => e.child(h_flex().gap(4).flex_wrap().items_center().children(item.labels.slice(0, 4).map((l) => labelChip(l, t, true))))))
+        .when(item.labels?.length > 0, (e) => e.child(h_flex().gap(5).flex_wrap().items_center().children(item.labels.slice(0, 4).map((l) => labelChip(l, t, true))))))
       .child(v_flex().flex_none().items_end().gap(4).pt(1)
-        .child(h_flex().gap(8).items_center().text_size(11.5).text_color(t.muted)
-            .when(Boolean(checks?.state), (e) => e.child(glyphOf(checks.state === "failure" ? "x-circle" : checks.state === "pending" ? "dot" : "check", 14, checks.state === "failure" ? p.closed : checks.state === "pending" ? p.attention : p.open, t)))
-            .when(Boolean(review), (e) => e.child(glyph(review[0], 14, review[1])))
+        .child(h_flex().gap(8).items_center().text_size(12.5).text_color(t.muted)
+            .when(Boolean(checks?.state), (e) => e.child(glyphOf(checks.state === "failure" ? "x-circle" : checks.state === "pending" ? "dot" : "check", 15, checks.state === "failure" ? p.closed : checks.state === "pending" ? p.attention : p.open, t)))
+            .when(Boolean(review), (e) => e.child(glyph(review[0], 15, review[1])))
             .when(item.comments > 0, (e) => e.child(h_flex().gap(3).items_center().child(glyph("comment", 13, t.muted)).child(String(item.comments)))))
-        .when(item.assignees?.length > 0, (e) => e.child(div().text_size(11).text_color(t.dim).child(item.assignees.map((a) => a.login).join(", ")))))
+        .when(item.assignees?.length > 0, (e) => e.child(div().text_size(12).text_color(t.dim).child(item.assignees.map((a) => a.login).join(", ")))))
       // Over the row's corner, so showing them never moves the text.
-      .when(hovered, (e) => e.child(div().absolute().top(5).right(8).p(2).rounded(7).bg(t.raised).border_1().border_color(t.border).child(this.rowActions(item, kind, t)))), key);
+      .when(hovered, (e) => e.child(div().absolute().top(6).right(8).p(2).rounded(7).bg(t.raised).border_1().border_color(t.border).child(this.rowActions(item, kind, t)))), key);
   }
 
   runRow(r, t) {
     const p = primer(t), key = `run-${r.databaseId}`, hovered = this.hover === key, [g, color] = runState(r, p);
-    return this.hoverable(h_flex().id(key).relative().flex_none().px(12).py(9).gap(10).items_start().border_b(1).border_color(t.border).cursor_pointer()
+    return this.hoverable(h_flex().id(key).relative().flex_none().px(14).py(10).gap(10).items_start().border_b(1).border_color(t.border).cursor_pointer()
       .bg(hovered ? t.hover : "#00000000").on_click(() => this.openRun(r))
       .on_mouse_down("right", () => copyMenu([["Copy link", r.url], ["Copy rerun command", `gh run rerun ${r.databaseId} -R ${r.repo} --failed`]], "pointer"))
       .child(div().pt(2).child(glyphOf(g, 16, color, t)))
-      .child(v_flex().flex_1().min_w(0).gap(4)
-        .child(div().text_size(13).font_semibold().child(r.displayTitle))
-        .child(h_flex().gap(6).flex_wrap().items_center().text_size(11.5).text_color(t.muted)
+      .child(v_flex().flex_1().min_w(0).gap(5)
+        .child(div().text_size(14.5).font_semibold().child(r.displayTitle))
+        .child(h_flex().gap(6).flex_wrap().items_center().text_size(12.5).text_color(t.muted)
           .child(div().font_semibold().child(r.workflowName))
           .child(div().child(`#${r.number}`))
-          .child(div().px(5).rounded(4).bg(`${p.link}1f`).text_color(p.link).font_family("JetBrains Mono").text_size(11).child(r.headBranch))
+          .child(div().px(6).py(1).rounded(4).bg(`${p.link}1f`).text_color(p.link).font_family("JetBrains Mono").text_size(12).child(r.headBranch))
           .child(div().child(`${r.event} · ${ago(r.createdAt)}`))))
       .when(hovered && /failure|timed_out/.test(r.conclusion ?? ""), (e) => e.child(div().absolute().top(5).right(8).p(2).rounded(7).bg(t.raised).border_1().border_color(t.border).child(button(`rerun-${r.databaseId}`, "", t, (_e, cx) => {
         cx.spawn(async (cx) => { try { await gh(["run", "rerun", String(r.databaseId), "-R", r.repo, "--failed"]); notify({ title: "Re-running failed jobs", body: r.workflowName, level: "success" }); this.refresh(cx); } catch (err) { notify({ title: "Re-run failed", body: String(err.message), level: "error" }); } });
@@ -305,54 +308,54 @@ export default class GitHub extends View {
   milestoneRow(m, t) {
     const p = primer(t), total = m.open + m.closed, pct = total ? Math.round(m.closed * 100 / total) : 0;
     const late = m.state === "open" && m.due && Date.parse(m.due) < Date.now();
-    return h_flex().id(`ms-${m.number}`).flex_none().px(12).py(10).gap(10).items_start().border_b(1).border_color(t.border).cursor_pointer().hover((s) => s.bg(t.hover))
+    return h_flex().id(`ms-${m.number}`).flex_none().px(14).py(10).gap(10).items_start().border_b(1).border_color(t.border).cursor_pointer().hover((s) => s.bg(t.hover))
       .on_click((_e, cx) => { this.f.issues = { state: "open", mine: false, milestone: m.title }; keep("filters", this.f); this.setTab("issues", cx); })
       .on_mouse_down("right", () => openUrl(m.url))
       .child(div().pt(2).child(glyph("milestone", 16, m.state === "open" ? p.open : p.done)))
       .child(v_flex().flex_1().min_w(0).gap(6)
-        .child(div().text_size(13).font_semibold().child(m.title))
+        .child(div().text_size(14.5).font_semibold().child(m.title))
         .child(div().h(8).w_full().rounded(4).bg(t.raised).overflow_hidden().child(div().h_full().w(`${pct}%`).rounded(4).bg(p.open)))
-        .child(h_flex().gap(10).flex_wrap().text_size(11.5).text_color(t.muted)
+        .child(h_flex().gap(10).flex_wrap().text_size(12.5).text_color(t.muted)
           .child(div().font_semibold().text_color(t.foreground).child(`${pct}%`)).child(div().child(`${m.open} open`)).child(div().child(`${m.closed} closed`))
           .child(div().text_color(late ? p.closed : t.muted).child(m.due ? `${late ? "Past due" : "Due"} ${day(m.due)}` : "No due date"))))
       .child(button(`ms-open-${m.number}`, "", t, () => openUrl(m.url), { icon: "external", invisible: true, small: true, tooltip: "Open on GitHub" }));
   }
 
   projectRow(pj, t) {
-    return h_flex().id(`pj-${pj.owner}-${pj.number}`).flex_none().px(12).py(10).gap(10).items_start().border_b(1).border_color(t.border).cursor_pointer().hover((s) => s.bg(t.hover))
+    return h_flex().id(`pj-${pj.owner}-${pj.number}`).flex_none().px(14).py(10).gap(10).items_start().border_b(1).border_color(t.border).cursor_pointer().hover((s) => s.bg(t.hover))
       .on_click(() => openUrl(pj.url))
       .child(div().pt(2).child(glyph("project", 16, t.muted)))
       .child(v_flex().flex_1().min_w(0).gap(4)
-        .child(div().text_size(13).font_semibold().child(pj.title))
-        .child(h_flex().gap(8).text_size(11.5).text_color(t.muted).child(div().child(`${pj.owner} · #${pj.number}`)).child(div().child(`${pj.items} items`))
+        .child(div().text_size(14.5).font_semibold().child(pj.title))
+        .child(h_flex().gap(8).text_size(12.5).text_color(t.muted).child(div().child(`${pj.owner} · #${pj.number}`)).child(div().child(`${pj.items} items`))
           .when(Boolean(pj.shortDescription), (e) => e.child(div().truncate().child(pj.shortDescription)))))
-      .child(glyph("external", 13, t.dim));
+      .child(glyph("external", 14, t.dim));
   }
 
   repoRow(r, t, counts) {
     const p = primer(t), local = this.locals[r.nameWithOwner], c = counts[r.nameWithOwner] ?? {};
     const [owner, name] = r.nameWithOwner.split("/");
-    return h_flex().id(`repo-${r.nameWithOwner}`).flex_none().px(12).py(10).gap(10).items_start().border_b(1).border_color(t.border).cursor_pointer().hover((s) => s.bg(t.hover))
+    return h_flex().id(`repo-${r.nameWithOwner}`).flex_none().px(14).py(10).gap(10).items_start().border_b(1).border_color(t.border).cursor_pointer().hover((s) => s.bg(t.hover))
       .on_click((_e, cx) => this.setPin(this.where().space, r.nameWithOwner, cx))
       .on_mouse_down("right", () => openUrl(r.url))
       .child(div().pt(2).child(glyph(r.isPrivate ? "lock" : "repo", 16, t.muted)))
       .child(v_flex().flex_1().min_w(0).gap(4)
-        .child(h_flex().gap(2).text_size(13).child(div().text_color(t.muted).child(`${owner}/`)).child(div().font_semibold().text_color(p.link).child(name))
+        .child(h_flex().gap(2).text_size(14.5).child(div().text_color(t.muted).child(`${owner}/`)).child(div().font_semibold().text_color(p.link).child(name))
           .when(r.isFork, (e) => e.child(div().pl(6).child(badge("fork", t)))))
-        .when(Boolean(r.description), (e) => e.child(div().text_size(12).text_color(t.muted).child(r.description)))
-        .child(h_flex().gap(10).flex_wrap().items_center().text_size(11.5).text_color(t.muted)
+        .when(Boolean(r.description), (e) => e.child(div().text_size(13).text_color(t.muted).child(r.description)))
+        .child(h_flex().gap(10).flex_wrap().items_center().text_size(12.5).text_color(t.muted)
           .when(Boolean(r.primaryLanguage?.name), (e) => e.child(div().child(r.primaryLanguage.name)))
-          .when(r.stargazerCount > 0, (e) => e.child(h_flex().gap(3).items_center().child(glyph("star", 12, t.muted)).child(String(r.stargazerCount))))
-          .when(c.issues > 0, (e) => e.child(h_flex().gap(3).items_center().child(glyph("issue-open", 12, p.open)).child(String(c.issues))))
-          .when(c.prs > 0, (e) => e.child(h_flex().gap(3).items_center().child(glyph("pr-open", 12, p.open)).child(String(c.prs))))
+          .when(r.stargazerCount > 0, (e) => e.child(h_flex().gap(3).items_center().child(glyph("star", 13, t.muted)).child(String(r.stargazerCount))))
+          .when(c.issues > 0, (e) => e.child(h_flex().gap(3).items_center().child(glyph("issue-open", 13, p.open)).child(String(c.issues))))
+          .when(c.prs > 0, (e) => e.child(h_flex().gap(3).items_center().child(glyph("pr-open", 13, p.open)).child(String(c.prs))))
           .child(div().child(`updated ${ago(r.pushedAt)}`))
-          .when(Boolean(local), (e) => e.child(h_flex().gap(3).items_center().text_color(t.foreground).child(glyph("folder", 12, t.muted)).child("cloned")))));
+          .when(Boolean(local), (e) => e.child(h_flex().gap(3).items_center().text_color(t.foreground).child(glyph("folder", 13, t.muted)).child("cloned")))));
   }
 
   // ---- drawing: tab bodies ----
   listHeader(tab, t) {
     const p = primer(t), f = this.f[tab] ?? {}, states = STATES[tab];
-    const head = h_flex().flex_none().h(38).px(12).gap(14).items_center().bg(t.raised).border_b(1).border_color(t.border).text_size(12.5);
+    const head = h_flex().flex_none().h(38).px(12).gap(14).items_center().bg(t.raised).border_b(1).border_color(t.border).text_size(13);
     if (states) {
       head.children(states.map(([s, g, label]) => {
         const on = f.state === s, e = this.data[this.key(tab, { ...this.filters(tab), state: s })], n = e?.items?.length;
@@ -368,15 +371,15 @@ export default class GitHub extends View {
           .on_click((_e, cx) => this.setFilter("actions", { failing: true }, cx)).child(glyph("x-circle", 14, f.failing ? p.closed : t.muted)).child("Failing"));
     }
     head.child(div().flex_1());
-    if (tab === "issues" && f.milestone) head.child(h_flex().id("ms-chip").h(22).px(8).gap(5).items_center().rounded(11).border_1().border_color(t.border).text_size(11.5).cursor_pointer()
+    if (tab === "issues" && f.milestone) head.child(h_flex().id("ms-chip").h(24).px(8).gap(5).items_center().rounded(6).border_1().border_color(t.border).text_size(12).cursor_pointer()
       .hover((x) => x.bg(t.hover)).on_click((_e, cx) => this.setFilter("issues", { milestone: null }, cx))
       .child(glyph("milestone", 12, t.muted)).child(div().max_w(120).truncate().child(f.milestone)).child(glyph("close", 11, t.muted)));
-    if (tab === "issues" || tab === "prs") head.child(h_flex().id(`mine-${tab}`).h(22).px(8).gap(5).items_center().rounded(11).text_size(11.5).cursor_pointer()
-      .border_1().border_color(f.mine ? p.link : t.border).bg(f.mine ? `${p.link}1f` : "#00000000").text_color(f.mine ? p.link : t.muted)
+    if (tab === "issues" || tab === "prs") head.child(h_flex().id(`mine-${tab}`).h(24).px(8).gap(5).items_center().rounded(6).text_size(12).cursor_pointer()
+      .border_1().border_color(f.mine ? p.link : t.border).bg(f.mine ? t.selected : "#00000000").text_color(f.mine ? t.foreground : t.muted)
       .hover((x) => x.text_color(t.foreground)).on_click((_e, cx) => this.setFilter(tab, { mine: !f.mine }, cx))
       .tooltip(tab === "prs" ? "Opened by you" : "Assigned to you").child(glyph("user", 12, f.mine ? p.link : t.muted)).child(tab === "prs" ? "Mine" : "Assigned"));
-    if (tab === "actions" && this.locals[this.repo()]) head.child(h_flex().id("runs-branch").h(22).px(8).gap(5).items_center().rounded(11).text_size(11.5).cursor_pointer()
-      .border_1().border_color(f.branch ? p.link : t.border).bg(f.branch ? `${p.link}1f` : "#00000000").text_color(f.branch ? p.link : t.muted)
+    if (tab === "actions" && this.locals[this.repo()]) head.child(h_flex().id("runs-branch").h(24).px(8).gap(5).items_center().rounded(6).text_size(12).cursor_pointer()
+      .border_1().border_color(f.branch ? p.link : t.border).bg(f.branch ? t.selected : "#00000000").text_color(f.branch ? t.foreground : t.muted)
       .on_click((_e, cx) => this.setFilter("actions", { branch: !f.branch }, cx)).tooltip("Runs of the local checkout's branch")
       .child(glyph("branch", 12, f.branch ? p.link : t.muted)).child(f.branch && this.locals[this.repo()]?.branch ? this.locals[this.repo()].branch : "This branch"));
     return head;
@@ -445,7 +448,7 @@ export default class GitHub extends View {
   more(total, t) {
     return h_flex().flex_none().py(10).justify_center().child(button("more", `Show ${Math.min(PAGE, total - this.limit)} more · ${total - this.limit} left`, t, (_e, cx) => { this.limit += PAGE; cx.notify(); }, { small: true }));
   }
-  heading(label, t) { return div().flex_none().px(12).pt(10).pb(6).text_size(11).font_semibold().text_color(t.dim).border_b(1).border_color(t.border).child(label); }
+  heading(label, t) { return div().flex_none().px(14).pt(10).pb(6).text_size(12).font_semibold().text_color(t.dim).border_b(1).border_color(t.border).child(label); }
 
   repoBody(t, cx) {
     const repo = this.repo(), e = this.entry(), r = e.items, p = primer(t), local = this.locals[repo];
@@ -502,45 +505,46 @@ export default class GitHub extends View {
   header(t) {
     const p = primer(t), repo = this.repo(), all = this.all(), pinned = Boolean(this.pin()), e = this.entry();
     const [owner, name] = all ? [null, "All repositories"] : repo ? repo.split("/") : [null, "No repository"];
-    return h_flex().flex_none().h(46).px(10).gap(6).items_center().border_b(1).border_color(t.border)
+    return h_flex().flex_none().h(44).px(12).gap(6).items_center().border_b(1).border_color(t.border)
       .child(h_flex().id("repo-switch").flex_1().min_w(0).h(30).px(8).gap(6).items_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover))
         .on_click(() => this.openPicker())
         .child(glyph(all ? "repos" : "github", 16, t.foreground))
-        .child(h_flex().min_w(0).gap(0).text_size(13.5)
+        .child(h_flex().min_w(0).gap(0).text_size(14.5)
           .when(Boolean(owner), (x) => x.child(div().flex_none().text_color(t.muted).child(`${owner}/`)))
           .child(div().min_w(0).truncate().font_semibold().text_color(t.foreground).child(name)))
         .child(glyph("chevron-down", 14, t.muted))
-        .when(pinned && !all, (x) => x.child(div().flex_none().text_size(10.5).text_color(t.dim).child("pinned"))))
+        .when(pinned && !all, (x) => x.child(div().flex_none().text_size(11.5).text_color(t.dim).child("pinned"))))
       .child(e.loading ? div().px(7).child(spinner(14, t.muted)) : button("refresh", "", t, (_e, cx) => this.refresh(cx), { icon: "refresh", invisible: true, tooltip: "Refresh" }))
       .when(Boolean(repo) && !all, (x) => x.child(button("new-issue", "", t, () => this.create(), { icon: "plus", invisible: true, tooltip: "New issue" }))
         .child(button("open-gh", "", t, () => openUrl(`https://github.com/${repo}${{ issues: "/issues", prs: "/pulls", actions: "/actions", milestones: "/milestones", projects: "/projects" }[this.shownTab()] ?? ""}`), { icon: "external", invisible: true, tooltip: "Open on GitHub" })));
   }
 
-  // GitHub's UnderlineNav: icon and count; the selected one also says its name.
+  // Pill navigation matching herdr-max controls.
   nav(t) {
     const p = primer(t), tab = this.shownTab();
     const count = (k) => k === "issues" || k === "prs" ? this.count(k) : null;
-    return h_flex().id("nav").flex_none().h(40).px(6).gap(2).items_stretch().border_b(1).border_color(t.border)
+    return h_flex().id("nav").flex_none().h(42).px(8).gap(4).items_center().border_b(1).border_color(t.border)
       .children(this.tabs().map((k) => {
         const on = k === tab, n = count(k), meta = TABS[k];
-        return v_flex().id(`nav-${k}`).flex_none().cursor_pointer().on_click((_e, cx) => this.setTab(k, cx)).tooltip(meta.label)
-          .child(h_flex().flex_1().px(8).my(5).gap(6).items_center().rounded(6).hover((s) => s.bg(t.hover)).text_size(12.5).text_color(on ? t.foreground : t.muted).when(on, (x) => x.font_semibold())
-            .child(glyph(meta.icon, 15, on ? t.foreground : t.muted))
-            .when(on, (x) => x.child(meta.short ?? meta.label))
-            .when(n !== null && n > 0, (x) => x.child(counter(n >= 200 ? "200+" : n, t, on))))
-          .child(div().h(2).mx(4).rounded(1).bg(on ? p.nav : "#00000000"));
+        return h_flex().id(`nav-${k}`).flex_none().h(28).px(9).gap(6).items_center().rounded(6).cursor_pointer()
+          .bg(on ? t.selected : "#00000000").hover((s) => s.bg(on ? t.selected : t.hover))
+          .text_size(13).text_color(on ? t.foreground : t.muted).when(on, (x) => x.font_semibold())
+          .on_click((_e, cx) => this.setTab(k, cx)).tooltip(meta.label)
+          .child(glyph(meta.icon, 15, on ? p.nav : t.muted))
+          .when(on, (x) => x.child(meta.short ?? meta.label))
+          .when(n !== null && n > 0, (x) => x.child(counter(n >= 200 ? "200+" : n, t, on)));
       }));
   }
 
   search(t) {
     return h_flex().flex_none().px(10).py(8).gap(6).items_center().border_b(1).border_color(t.border)
-      .child(h_flex().id("filter").flex_1().min_w(0).h(30).px(9).gap(7).items_center().rounded(6).bg(t.input ?? t.background).border_1().border_color(this.typing ? primer(t).link : t.border).cursor_text()
+      .child(h_flex().id("filter").flex_1().min_w(0).h(32).px(10).gap(7).items_center().rounded(7).bg(t.input ?? t.background).border_1().border_color(this.typing ? t.accent : t.border).cursor_text()
         .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-        .child(glyph("search", 14, t.muted)).child(Input.new(this.input).flex_1().h_full().text_size(12.5).text_color(t.foreground)));
+        .child(glyph("search", 14, t.muted)).child(Input.new(this.input).flex_1().h_full().text_size(13.5).text_color(t.foreground)));
   }
 
   shell(t) {
-    return v_flex().id("github").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13);
+    return v_flex().id("github").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(14);
   }
 
   render(cx) {

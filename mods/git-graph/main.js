@@ -126,8 +126,9 @@ export default class GitGraph extends View {
     const refs = [...r.commit.refs].sort((a, b) => (a.kind === "head" ? -1 : 0) - (b.kind === "head" ? -1 : 0));
     const cell = div().w(lanes * LANE).h(ROW).flex_none().relative().overflow_hidden()
       .children(r.segs.map((s) => window.paint_path(segPath(s), palette[s.color % palette.length]).absolute().top(0).left(0).size_full()))
-      .child(div().absolute().top(ROW / 2 - 6).left(r.node * LANE + LANE / 2 - 6).size(12).rounded(6)
-        .border_2().border_color(c).bg(r.merge ? t.background : c));
+      .child(div().absolute().top(ROW / 2 - (r.merge ? 7 : 6)).left(r.node * LANE + LANE / 2 - (r.merge ? 7 : 6)).size(r.merge ? 14 : 12).rounded(r.merge ? 7 : 6)
+        .border_2().border_color(c).bg(r.merge ? t.background : c).flex().items_center().justify_center()
+        .when(r.merge, (e) => e.child(div().size(4).rounded(2).bg(c))));
     const sel = this.selected === r.commit.hash;
     return h_flex().id(`gg-${r.commit.hash}`).w_full().h(ROW).flex_none().items_center().gap(6).pr(10).cursor_pointer()
       .when(sel, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover))
