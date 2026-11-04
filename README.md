@@ -44,7 +44,7 @@ A customized [Herdr](https://herdr.dev) desktop layout (`main-custom`) and mod s
 - Ref chips per commit: `HEAD`/current branch, local branches, `origin/*` remotes, tags.
 - Header toggle switches between **All branches** (local + remote + tags) and **HEAD only**; `↻` forces a refresh. The graph also auto-refreshes every 6s when refs change.
 - Click a commit to open its detail drawer: hash, author, date, message body, changed files (first-parent diff for merges).
-- Lives in the `graph` child of the `panel-body` stack (same slot as Files / Changes).
+- Lives in the `graph` child of the `panel-body` stack (same slot as Files / Changes). The tab bar is `tabs-plus` (a clone of Herdr's `tabs` with an extra **Graph** button next to Files / Changes; clones are not auto-updated with Herdr's `tabs`).
 
 ---
 
