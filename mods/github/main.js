@@ -159,13 +159,13 @@ export default class GitHub extends View {
 
   // ---- opening & actions ----
   localFor(repo) { const l = this.locals[repo]; return l ? { [repo]: { folder: l.folder, space: l.space ?? null } } : {}; }
-  open(item, kind, openMerge = false) {
+  open(item, kind) {
     openOverlay({
       mod: "github",
       kind: "dialog",
       width: 0.88,
       height: 0.92,
-      props: { item: { kind, repo: item.repo, number: item.number, me: this.account?.login, locals: this.localFor(item.repo), openMerge, data: kind === "pr" ? null : item.body !== undefined ? item : null } },
+      props: { item: { kind, repo: item.repo, number: item.number, me: this.account?.login, locals: this.localFor(item.repo), data: kind === "pr" ? null : item.body !== undefined ? item : null } },
     });
   }
   openRun(r) {

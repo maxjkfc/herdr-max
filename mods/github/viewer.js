@@ -58,13 +58,13 @@ export function parseDiff(text) {
   return files;
 }
 
-// One issue or pull request in a dialog: { kind, repo, number, data?, me?, locals?, openMerge? } from the panel.
+// One issue or pull request in a dialog: { kind, repo, number, data?, me?, locals? } from the panel.
 export class Viewer {
-  constructor({ kind, repo, number, data, me, locals, openMerge }, overlay, cx) {
+  constructor({ kind, repo, number, data, me, locals }, overlay, cx) {
     Object.assign(this, { kind, repo, number, me, overlay, locals: locals ?? {} });
     this.trail = []; this.items = {}; this.threads = {}; this.repoLabels = {}; this.mode = "write";
     this.diffs = {}; this.fileIdx = 0; this.diffRows = []; this.diffWidth = 0;
-    this.mergeOpen = Boolean(openMerge); this.merging = false; this.mergeError = null;
+    this.merging = false; this.mergeError = null;
     if (data) this.items[this.key()] = data;
     this.box = TextareaState.new({ placeholder: "輸入留言（支援 Markdown，Ctrl+Enter 送出）…" });
     this.box.set_auto_grow(3, 10);
@@ -144,7 +144,7 @@ export class Viewer {
         await gh(args);
         notify({ title: `PR #${number} 已合併`, body: title, level: "success", timeout: 3000 });
         setShared("github.changed", { repo, at: Date.now() });
-        if (this.key() === key) { this.mergeOpen = false; this.load(cx); }
+        if (this.key() === key) { this.load(cx); }
       } catch (e) {
         if (this.key() === key) this.mergeError = String(e?.message ?? e);
       } finally {
@@ -157,12 +157,12 @@ export class Viewer {
   goTo(repo, number, kind, cx) {
     if (repo === this.repo && number === this.number) return;
     this.trail.push({ repo: this.repo, number: this.number, kind: this.kind });
-    Object.assign(this, { repo, number, kind, picking: false, mergeOpen: false, mergeError: null });
+    Object.assign(this, { repo, number, kind, picking: false, mergeError: null });
     this.load(cx); cx.notify();
   }
   goBack(cx) {
     const prev = this.trail.pop();
-    if (prev) { Object.assign(this, prev, { picking: false, mergeOpen: false, mergeError: null }); this.load(cx); cx.notify(); }
+    if (prev) { Object.assign(this, prev, { picking: false, mergeError: null }); this.load(cx); cx.notify(); }
   }
   follow(url, cx) {
     const m = LINK.exec(url);
