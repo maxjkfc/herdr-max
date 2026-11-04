@@ -1,6 +1,6 @@
 // Briefs handed to a coding agent: the context it needs, the task, how to check it, how to report.
 // GitHub content goes inside tags and is declared as data, so an issue can't steer the agent.
-// Written in English (fewer tokens, no language bleed into commits); only the report is in French.
+// Written in English (fewer tokens, no language bleed into commits); the final report is in Traditional Chinese.
 
 const names = (items) => (items ?? []).map((x) => typeof x === "string" ? x : x.name ?? x.login).filter(Boolean).join(", ") || "none";
 const who = (u) => u?.login ?? u ?? "?";
@@ -38,7 +38,7 @@ const RULES = [
 ];
 
 const REPORT = [
-  "## Report (in French, short bullets)",
+  "## Report (in Traditional Chinese / 繁體中文, keep technical terms in English, short bullets)",
   "1. What changed and why, main files.",
   "2. Checks actually run and their results; what was not verified, and why.",
   "3. Commits created (hash and subject), or the plan if you stopped for approval.",
