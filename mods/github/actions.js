@@ -1,6 +1,6 @@
 import { v_flex, h_flex } from "gpui-base";
 import { div, svg, image } from "gpui-kit";
-import { run, notify, openOverlay, closeOverlay, knownAgents, spaces, panes, exec, home, shared, setShared } from "herdr";
+import { run, notify, openOverlay, closeOverlay, knownAgents, spaces, panes, exec, home, shared, setShared, nextCommand } from "herdr";
 import { glyph, under } from "./ui.js";
 
 export function copied(cx, text, title, body) {
@@ -103,34 +103,72 @@ export async function launch(agent, { name, brief, folder, space, issue, inWorkt
 
 export class AgentMenu {
   constructor(task, overlay, cx) {
-    this.task = task; this.overlay = overlay; this.agents = null;
+    this.task = task; this.overlay = overlay; this.agents = null; this.idx = 0;
     this.inWorktree = Boolean(task.issue && task.folder);
+    this.handle = cx.focus_handle();
+    this.handle.focus();
+    cx.timer.after(50, () => this.handle.focus());
     cx.spawn(async (cx) => { this.agents = (await knownAgents().catch(() => [])).filter((a) => a.installed && a.run?.length); cx.notify(); });
+    cx.spawn(async (cx) => {
+      for (;;) {
+        const cmd = await nextCommand();
+        const n = (this.agents ?? []).length;
+        if (!n) continue;
+        if (cmd === "down") this.idx = (this.idx + 1) % n;
+        else if (cmd === "up") this.idx = (this.idx + n - 1) % n;
+        cx.notify();
+      }
+    });
+  }
+  pick(a, cx) {
+    if (!a) return;
+    cx.spawn(async () => {
+      try { await launch(a, { ...this.task, inWorktree: this.inWorktree }); }
+      catch (err) { notify({ title: "啟動失敗", body: String(err?.message ?? err), level: "error" }); }
+    });
+    closeOverlay(this.overlay);
+  }
+  onKey(e, cx) {
+    const k = e.key, list = this.agents ?? [];
+    if (k === "escape" || k === "q") { cx.stop_propagation(); closeOverlay(this.overlay); return; }
+    if (k === "w" && this.task.issue && this.task.folder) { this.inWorktree = !this.inWorktree; cx.stop_propagation(); cx.notify(); return; }
+    if (!list.length) return;
+    if (k === "j" || k === "down" || ((k === "j" || k === "n") && e.modifiers?.control)) {
+      this.idx = (this.idx + 1) % list.length; cx.stop_propagation(); cx.notify();
+    } else if (k === "k" || k === "up" || ((k === "k" || k === "p") && e.modifiers?.control)) {
+      this.idx = (this.idx + list.length - 1) % list.length; cx.stop_propagation(); cx.notify();
+    } else if (k === "enter") {
+      cx.stop_propagation(); this.pick(list[this.idx], cx);
+    } else if (/^[1-9]$/.test(k) && list[Number(k) - 1]) {
+      cx.stop_propagation(); this.pick(list[Number(k) - 1], cx);
+    }
   }
   render(cx, t) {
     const list = this.agents, hasIssue = Boolean(this.task.issue && this.task.folder);
     return v_flex().id("agent-menu").size_full().p(6).gap(1).bg(t.popover).text_color(t.foreground).text_size(13)
-      .child(div().px(8).pt(4).pb(6).text_size(11).font_semibold().text_color(t.dim).child(`Start an agent on ${this.task.name}`))
+      .track_focus(this.handle).on_key_down((e, cx) => this.onKey(e, cx))
+      .child(h_flex().px(8).pt(4).pb(6).items_center().text_size(11).text_color(t.dim)
+        .child(div().flex_1().font_semibold().truncate().child(`派發 Agent：${this.task.name}`))
+        .child(div().child("j/k · Enter")))
       .when(hasIssue, (e) => e.child(h_flex().id("agent-wt-toggle").h(28).px(8).mb(4).gap(6).items_center().rounded(6).cursor_pointer()
         .bg(this.inWorktree ? t.selected : t.raised).border_1().border_color(this.inWorktree ? t.accent : t.border)
         .on_click((_e, cx) => { this.inWorktree = !this.inWorktree; cx.notify(); })
-        .child(div().text_size(12).child(this.inWorktree ? "🌱 在新 Worktree 啟動并綁定 Issue" : "在目前 Space 開新 Tab 啟動"))))
-      .when(!list, (e) => e.child(div().px(8).py(6).text_color(t.muted).child("Looking for agents…")))
-      .when(list?.length === 0, (e) => e.child(div().px(8).py(6).text_size(12).text_color(t.muted).child("No agent installed. Add one in programs.json.")))
-      .children((list ?? []).map((a, n) => h_flex().id(`agent-${n}`).h(32).flex_none().px(8).gap(8).items_center().rounded(6).cursor_pointer()
-        .hover((s) => s.bg(t.hover))
-        .on_click((_e, cx) => {
-          cx.spawn(async () => {
-            try { await launch(a, { ...this.task, inWorktree: this.inWorktree }); }
-            catch (err) { notify({ title: "Launch failed", body: String(err?.message ?? err), level: "error" }); }
-          });
-          closeOverlay(this.overlay);
-        })
-        .child(div().size(16).flex_none().when(Boolean(a.icon), (e) => e.child(a.tint ? svg(a.icon).size(16).text_color(t.muted) : image(a.icon).size(16))))
-        .child(div().flex_1().truncate().child(a.name))))
+        .child(div().text_size(12).child(this.inWorktree ? "🌱 在新 Worktree 啟動並綁定 [W]" : "在目前 Space 開新 Tab 啟動 [W]"))))
+      .when(!list, (e) => e.child(div().px(8).py(6).text_color(t.muted).child("正在讀取已安裝的 Agent…")))
+      .when(list?.length === 0, (e) => e.child(div().px(8).py(6).text_size(12).text_color(t.muted).child("尚未設定 Agent（請在 programs.json 新增）")))
+      .children((list ?? []).map((a, n) => {
+        const on = this.idx === n;
+        return h_flex().id(`agent-${n}`).h(32).flex_none().px(8).gap(8).items_center().rounded(6).cursor_pointer()
+          .bg(on ? t.selected : "#00000000").border_1().border_color(on ? t.accent : "#00000000")
+          .hover((s) => s.bg(t.hover))
+          .on_click((_e, cx) => this.pick(a, cx))
+          .child(div().size(16).flex_none().when(Boolean(a.icon), (e) => e.child(a.tint ? svg(a.icon).size(16).text_color(t.muted) : image(a.icon).size(16))))
+          .child(div().flex_1().truncate().child(a.name))
+          .child(div().text_size(11).text_color(t.dim).child(`[${n + 1}]`));
+      }))
       .child(div().flex_1())
       .child(h_flex().px(8).py(6).gap(6).items_center().border_t(1).border_color(t.border).text_size(11).text_color(t.dim)
-        .child(glyph("folder", 12, t.dim)).child(div().truncate().child(this.task.folder ?? "Not cloned here: the agent will clone it")));
+        .child(glyph("folder", 12, t.dim)).child(div().truncate().child(this.task.folder ?? "本機尚未 clone：Agent 會自行 clone")));
   }
 }
 

@@ -137,5 +137,17 @@
     "ctrl-p": "worktree-plus.up",
     "ctrl-j": "worktree-plus.down",
     "ctrl-k": "worktree-plus.up"
+  },
+  "mod:github": {
+    "ctrl-n": "github.down",
+    "ctrl-p": "github.up",
+    "ctrl-j": "github.down",
+    "ctrl-k": "github.up"
+  },
+  "mod:git-graph": {
+    "ctrl-n": "git-graph.down",
+    "ctrl-p": "git-graph.up",
+    "ctrl-j": "git-graph.down",
+    "ctrl-k": "git-graph.up"
   }
 }

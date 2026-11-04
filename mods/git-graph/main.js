@@ -1,6 +1,6 @@
 import { View, div, PathBuilder } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list } from "gpui-base";
-import { spaces, panes, focused, exec, theme, settings } from "herdr";
+import { spaces, panes, focused, exec, theme, nextCommand } from "herdr";
 import { layoutGraph, parseLog, relativeTime, LOG_FORMAT } from "./graph.js";
 
 const ROW = 32;        // px per commit row
@@ -42,8 +42,39 @@ export default class GitGraph extends View {
     this.commits = []; this.graph = { rows: [], width: 1 };
     this.all = localStorage.getItem("all") !== "0";
     this.selected = null; this.detail = null;
+    this.handle = cx.focus_handle();
     this.refresh(cx, true);
     cx.timer.every(POLL_MS, (cx) => this.refresh(cx, false));
+    cx.spawn(async (cx) => {
+      for (;;) {
+        const cmd = await nextCommand();
+        if (cmd === "down") this.step(1, cx);
+        else if (cmd === "up") this.step(-1, cx);
+      }
+    });
+  }
+
+  step(delta, cx) {
+    if (!this.commits.length) return;
+    const cur = this.commits.findIndex((c) => c.hash === this.selected);
+    const next = cur < 0 ? 0 : (cur + delta + this.commits.length) % this.commits.length;
+    this.selected = null;
+    this.select(this.commits[next].hash, cx);
+  }
+
+  onKey(e, cx) {
+    const k = e.key;
+    if (k === "j" || k === "down" || ((k === "j" || k === "n") && e.modifiers?.control)) {
+      this.step(1, cx); cx.stop_propagation();
+    } else if (k === "k" || k === "up" || ((k === "k" || k === "p") && e.modifiers?.control)) {
+      this.step(-1, cx); cx.stop_propagation();
+    } else if (k === "a") {
+      this.toggleScope(cx); cx.stop_propagation();
+    } else if (k === "r") {
+      this.refresh(cx, true); cx.stop_propagation();
+    } else if (k === "escape" && this.selected) {
+      this.selected = null; this.detail = null; cx.stop_propagation(); cx.notify();
+    }
   }
 
   git(args) { return exec("git", [...READ, ...args], { cwd: this.root, on: this.on }); }
@@ -164,7 +195,7 @@ export default class GitGraph extends View {
     const button = (id, label, on_click) => div().id(id).h(26).px(8).flex().items_center().rounded(6).text_size(13).text_color(t.muted)
       .cursor_pointer().hover((s) => s.bg(t.hover)).on_click(on_click).child(label);
     return v_flex().id("git-graph").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
-      .text_color(t.foreground).text_size(15)
+      .text_color(t.foreground).text_size(15).track_focus(this.handle).on_key_down((e, cx) => this.onKey(e, cx))
       .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
         .child(div().font_semibold().child("Graph"))
         .child(div().px(6).py(1).rounded(4).border_1().border_color(t.border).text_size(12).text_color(t.muted).child(`${rows.length}${rows.length >= LIMIT ? "+" : ""} commits`))

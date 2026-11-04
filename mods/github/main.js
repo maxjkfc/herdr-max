@@ -79,7 +79,13 @@ export default class GitHub extends View {
       for (;;) {
         const c = await nextCommand();
         if (TABS[c]) this.setTab(c, cx);
-        else if (c === "refresh") this.refresh(cx);
+        else if (c === "down") {
+          const items = this.filteredItems();
+          if (items.length) this.selectedIdx = (this.selectedIdx + 1) % items.length;
+        } else if (c === "up") {
+          const items = this.filteredItems();
+          if (items.length) this.selectedIdx = (this.selectedIdx + items.length - 1) % items.length;
+        } else if (c === "refresh") this.refresh(cx);
         else if (c === "open") this.openFirst();
         else if (c === "switch" && !this.fixed) this.openPicker();
         else if (c === "all" || c === "follow") this.setPin(this.where().space, c === "all" ? "all" : null, cx);
@@ -441,28 +447,54 @@ export default class GitHub extends View {
   }
 
   onKey(e, cx) {
+    const k = e.key;
     if (this.typing) {
-      if (e.key === "escape") { this.typing = false; this.handle.focus(); cx.stop_propagation(); cx.notify(); }
+      if (k === "escape") { this.typing = false; this.handle.focus(); cx.stop_propagation(); cx.notify(); }
+      return;
+    }
+    if (k === "/") {
+      this.typing = true;
+      this.input.focus();
+      cx.stop_propagation(); cx.notify();
+      return;
+    }
+    if (k === "1") { this.setTab("prs", cx); cx.stop_propagation(); return; }
+    if (k === "2") { this.setTab("issues", cx); cx.stop_propagation(); return; }
+    if (k === "3") { this.setTab("actions", cx); cx.stop_propagation(); return; }
+    if (k === "r") { this.refresh(cx); cx.stop_propagation(); return; }
+    if (k === "n" && !e.modifiers?.control && this.shownTab() === "issues" && this.repo() && !this.all()) {
+      this.create();
+      cx.stop_propagation();
       return;
     }
     const items = this.filteredItems();
     if (!items.length) return;
-    if (e.key === "j" || e.key === "down") {
+    const sel = items[this.selectedIdx] ?? items[0];
+    if (k === "j" || k === "down" || ((k === "j" || k === "n") && e.modifiers?.control)) {
       this.selectedIdx = (this.selectedIdx + 1) % items.length;
       cx.stop_propagation(); cx.notify();
-    } else if (e.key === "k" || e.key === "up") {
+    } else if (k === "k" || k === "up" || ((k === "k" || k === "p") && e.modifiers?.control)) {
       this.selectedIdx = (this.selectedIdx + items.length - 1) % items.length;
       cx.stop_propagation(); cx.notify();
-    } else if (e.key === "enter") {
-      const sel = items[this.selectedIdx];
+    } else if (k === "enter" || k === "d") {
       if (!sel) return;
       const tab = this.shownTab();
       if (tab === "actions") this.openRun(sel);
       else this.open(sel, tab === "prs" ? "pr" : "issue");
       cx.stop_propagation();
-    } else if (e.key === "w" && this.shownTab() === "issues") {
-      const sel = items[this.selectedIdx];
-      if (sel) this.openWorktree(sel);
+    } else if (k === "m" && this.shownTab() === "prs" && sel) {
+      this.inlineMergeNum = this.inlineMergeNum === sel.number ? null : sel.number;
+      cx.stop_propagation(); cx.notify();
+    } else if (k === "w" && this.shownTab() === "issues" && sel) {
+      const bound = this.boundWorktreeForIssue(sel.repo, sel.number);
+      if (bound) run("space.select", { id: bound.space.id });
+      else this.openWorktree(sel);
+      cx.stop_propagation();
+    } else if (k === "a" && sel && this.shownTab() !== "actions") {
+      this.startAgent(sel, this.shownTab() === "prs" ? "pr" : "issue", cx);
+      cx.stop_propagation();
+    } else if (k === "o" && sel?.url) {
+      openUrl(sel.url);
       cx.stop_propagation();
     }
   }
