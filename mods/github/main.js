@@ -300,7 +300,7 @@ export default class GitHub extends View {
         }, { small: true, primary: !mergeExpanded, color: p.open, enabled: !blocked })))
         .when(!isOpen, (e) => e.child(div().text_size(11.5).text_color(color).child(stateLabel)))
         .child(div().flex_1())
-        .child(button(`pr-ag-${item.number}`, "⚡ Agent", t, (_e, cx) => { cx.stop_propagation(); this.startAgent(item, "pr", cx); }, { small: true, invisible: true })))
+        .child(button(`pr-ag-${item.number}`, "派 Agent", t, (_e, cx) => { cx.stop_propagation(); this.startAgent(item, "pr", cx); }, { small: true, invisible: true, icon: "agent" })))
       // Inline 1-click Merge Method strip when expanded
       .when(mergeExpanded && !blocked, (e) => e.child(h_flex().pt(4).gap(6).items_center().border_t(1).border_color(t.border)
         .children(METHODS.map(([m, label, ic]) => button(`pr-im-${item.number}-${m}`, label, t, (_e, cx) => {
@@ -342,10 +342,10 @@ export default class GitHub extends View {
           if (bound) run("space.select", { id: bound.space.id });
           else this.openWorktree(item);
         }, { small: true, primary: true, color: p.link }))
-        .child(button(`iss-ag-${item.number}`, "⚡ 派 Agent", t, (_e, cx) => {
+        .child(button(`iss-ag-${item.number}`, "派 Agent", t, (_e, cx) => {
           cx.stop_propagation();
           this.startAgent(item, "issue", cx);
-        }, { small: true, color: p.open }))
+        }, { small: true, color: p.open, icon: "agent" }))
         .child(div().flex_1())
         .child(div().text_size(11.5).text_color(t.dim).child(ago(item.updatedAt))));
   }

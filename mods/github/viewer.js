@@ -6,7 +6,7 @@ import { entries, tally, loginOf } from "./timeline.js";
 import { primer, glyph, spinner, ago, openUrl, issueState, prState, checksOf, glyphOf, labelChip, button, badge } from "./ui.js";
 import { ghJson, gh, localState } from "./gh.js";
 import { issueBrief, prBrief } from "./brief.js";
-import { copied, pickAgent, copyMenu, openIssueWorktree } from "./actions.js";
+import { pickAgent, openIssueWorktree } from "./actions.js";
 
 const FIELDS = {
   issue: "number,title,body,author,state,stateReason,labels,assignees,createdAt,updatedAt,comments,url,milestone,reactionGroups,closedByPullRequestsReferences",
@@ -243,9 +243,6 @@ export class Viewer {
       cx.stop_propagation();
     } else if (k === "w" && !this.pr()) {
       this.openWorktree();
-      cx.stop_propagation();
-    } else if (k === "y") {
-      copied(cx, this.brief(), "已複製 Agent Brief", `${this.repo}#${this.item.number}`);
       cx.stop_propagation();
     } else if (k === "a") {
       this.startAgent();
@@ -591,7 +588,7 @@ export class Viewer {
     return v_flex().id("aside").w(250).flex_none().min_h(0).overflow_y_scrollbar().px(16).py(12).border_l(1).border_color(t.border)
       .child(part("快速動作", v_flex().gap(6)
         .child(button("aside-wt", "🌱 建立 / 切換 Worktree [W]", t, () => this.openWorktree(), { primary: true, color: p.link }))
-        .child(button("aside-agent", "⚡ 派發 Agent 處理 [A]", t, () => this.startAgent(), { color: p.open }))))
+        .child(button("aside-agent", "派發 Agent 處理 [A]", t, () => this.startAgent(), { color: p.open, icon: "agent" }))))
       .child(part("指派 (Assignees)",
         i.assignees.length ? v_flex().gap(8).children(i.assignees.map((a) => person(a.login)))
           : h_flex().gap(4).child(quiet("未指派")).when(Boolean(me), (e) => e.child(quiet("·")).child(link("assign", "指派給自己", (_e, cx) => this.act("指派中…", "edit", ["--add-assignee", "@me"], cx)))),
@@ -630,15 +627,14 @@ export class Viewer {
           .child(button("github", "O", t, () => openUrl(i.url), { icon: "external", small: true, invisible: true, tooltip: "在 GitHub 開啟 [O]" }))
           .when(!pr, (x) => x.child(button("open-wt", "🌱 Worktree [W]", t, () => this.openWorktree(), { color: p.link, small: true, tooltip: "建立或切換至此 Issue 的 Worktree [W]" })))
           .when(pr && this.open(), (x) => x.child(button("checkout", "Checkout [X]", t, () => this.checkout(), { icon: "terminal", small: true, tooltip: "在新 Tab 執行 gh pr checkout [X]" })))
-          .child(button("brief", "複製 Brief [Y]", t, (_e, cx) => copied(cx, this.brief(), "已複製 Agent Brief", `${this.repo}#${i.number}`), { icon: "brief", small: true }))
-          .child(button("agent", "⚡ 派 Agent [A]", t, () => this.startAgent(), { primary: true, small: true })))
+          .child(button("agent", "派 Agent [A]", t, () => this.startAgent(), { primary: true, small: true, icon: "agent" })))
         .child(button("close-dialog", "Esc", t, () => closeOverlay(this.overlay), { icon: "close", small: true, invisible: true, tooltip: "關閉視窗 [Esc / Q]" })))
       .when(Boolean(i), (e) => e.child(h_flex().gap(10).items_center()
         .child(div().flex_1().min_w(0).truncate().text_size(17).font_semibold().text_color(t.foreground).child(i.title))
         .child(div().flex_none().text_size(11.5).text_color(t.dim).child(
           pr
-            ? "快捷鍵：j/k 換檔 · m/s/b 合併 · x Checkout · y 複製 · a 派 Agent · c 留言 · q/Esc 關閉"
-            : "快捷鍵：w 開 Worktree · a 派 Agent · y 複製 · c 留言 · o 開網頁 · q/Esc 關閉"
+            ? "快捷鍵：j/k 換檔 · m/s/b 合併 · x Checkout · a 派 Agent · c 留言 · o 開網頁 · q/Esc 關閉"
+            : "快捷鍵：w 開 Worktree · a 派 Agent · c 留言 · o 開網頁 · q/Esc 關閉"
         ))));
   }
 

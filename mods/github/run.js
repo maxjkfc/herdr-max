@@ -4,7 +4,7 @@ import { theme, closeOverlay, setShared } from "herdr";
 import { primer, glyph, spinner, ago, duration, openUrl, runState, glyphOf, button } from "./ui.js";
 import { ghJson, gh, failedLog, localState } from "./gh.js";
 import { runBrief } from "./brief.js";
-import { copied, pickAgent } from "./actions.js";
+import { pickAgent } from "./actions.js";
 
 // One workflow run: its jobs and steps, the failing log, and what to do about it.
 export class RunView {
@@ -75,8 +75,7 @@ export class RunView {
           .child(button("github", "", t, () => openUrl(r.url), { icon: "external", tooltip: "Open on GitHub" }))
           .when(failing, (e) => e.child(button("rerun", "Re-run failed jobs", t, (_e, cx) => this.rerun(cx, true), { icon: "refresh", enabled: !this.busy })))
           .when(r.status === "completed" && !failing, (e) => e.child(button("rerun-all", "Re-run", t, (_e, cx) => this.rerun(cx, false), { icon: "refresh", enabled: !this.busy })))
-          .when(failing, (e) => e.child(button("brief", "Copy brief", t, (_e, cx) => copied(cx, this.brief(), "CI brief copied", `${r.workflowName} · ${r.headBranch}`), { icon: "brief" }))
-            .child(button("agent", "Fix with agent", t, () => pickAgent({ name: `CI ${r.workflowName} ${r.repo.split("/")[1]}`, brief: this.brief(), folder: this.local?.folder ?? null, space: this.local?.space ?? null }), { primary: true, icon: "agent" })))
+          .when(failing, (e) => e.child(button("agent", "派 Agent 修復", t, () => pickAgent({ name: `CI ${r.workflowName} ${r.repo.split("/")[1]}`, brief: this.brief(), folder: this.local?.folder ?? null, space: this.local?.space ?? null }), { primary: true, icon: "agent" })))
           .child(button("close", "", t, () => closeOverlay(this.overlay), { icon: "close", invisible: true, tooltip: "Close (Esc)" })))
         .child(h_flex().gap(10).items_center().child(glyphOf(g, 22, color, t)).child(div().flex_1().min_w(0).text_size(24).truncate().child(r.displayTitle)))
         .child(h_flex().gap(14).flex_wrap().text_size(13).text_color(t.muted)
