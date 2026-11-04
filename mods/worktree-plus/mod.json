@@ -1,0 +1,13 @@
+{
+  "place": "none",
+  "title": "Worktree Plus",
+  "overlay": {
+    "kind": "dialog",
+    "width": 540,
+    "height": 460
+  },
+  "cloned_from": {
+    "name": "worktree",
+    "version": "0.1.12"
+  }
+}

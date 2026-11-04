@@ -1,0 +1,11 @@
+{
+  "place": "none",
+  "title": "Status & Quota",
+  "overlay": {
+    "kind": "popup",
+    "at": "top",
+    "offset": 48,
+    "width": 480,
+    "height": 540
+  }
+}
