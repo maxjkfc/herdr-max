@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -128,6 +129,39 @@ def fetch_issues(repo_path):
         return []
 
 
+def default_ref(top):
+    ok, ref = git_out(top, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
+    return ref if ok and ref else "origin/main"
+
+
+def is_merged(r):
+    """True when the worktree's HEAD is already in the base branch: a normal merge or
+    fast-forward (ancestor of origin/<default>), or a squash/rebase merge of a GitHub PR
+    whose head commit is exactly this HEAD (checked with `gh`, 8s timeout)."""
+    top, branch = r["top"], r.get("branch")
+    ok, head = git_out(top, ["rev-parse", "HEAD"])
+    if not ok or not head:
+        return False
+    try:
+        rc = subprocess.call(["git", "-C", top, "merge-base", "--is-ancestor", head, default_ref(top)],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=4)
+        if rc == 0:
+            return True
+    except Exception:
+        pass
+    env = os.environ.copy()
+    env["PATH"] = env.get("PATH", "") + ":/opt/homebrew/bin:/usr/local/bin"
+    if not branch or branch in ("main", "master", "HEAD") or not shutil.which("gh", path=env["PATH"]):
+        return False
+    try:
+        out = subprocess.check_output(
+            ["gh", "pr", "list", "--head", branch, "--state", "merged", "--json", "headRefOid", "--limit", "10"],
+            cwd=top, env=env, stderr=subprocess.DEVNULL, timeout=8)
+        return any(p.get("headRefOid") == head for p in json.loads(out))
+    except Exception:
+        return False
+
+
 def check_wt(folder):
     r = repo_of(folder)
     if not r or not r["linked"]:
@@ -139,12 +173,17 @@ def check_wt(folder):
         unpushed = int(unpushed_out)
     except Exception:
         unpushed = 0
+    merged = False
+    # Commits that look unpushed after a squash/rebase merge are already on the base branch.
+    if unpushed > 0 and is_merged(r):
+        merged, unpushed = True, 0
     return {
         "linked": True,
         "repo": r,
         "dirty": len(dirty_lines) > 0,
         "dirtyCount": len(dirty_lines),
         "unpushed": unpushed,
+        "merged": merged,
     }
 
 
@@ -185,7 +224,7 @@ def auto_clean_wt(folder):
     branch = r.get("branch")
     res = remove_wt(folder, delete_branch=False)
     if res.get("ok") and branch and branch not in ("main", "master", "HEAD"):
-        subprocess.call(["git", "-C", main_dir, "branch", "-d", branch], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=4)
+        subprocess.call(["git", "-C", main_dir, "branch", "-D" if st.get("merged") else "-d", branch], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=4)
     return {"action": "cleaned", "repo": r["name"], "branch": branch}
 
 

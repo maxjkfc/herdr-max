@@ -2,8 +2,9 @@ import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { spaces, agents, theme, run, window, keys, exec, shared, setShared, openOverlay } from "herdr";
 
-// A GUI-launched app may not have Homebrew on PATH, so name macmon in full.
-const MACMON = "/opt/homebrew/bin/macmon";
+// A GUI-launched app may not have Homebrew on PATH: add both Homebrew prefixes
+// (Apple Silicon and Intel) after the inherited PATH instead of naming one install path.
+const MACMON_CMD = 'PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"; macmon pipe -s 1 -i 500 --soc-info';
 
 function levelColor(t, val, warnAt, dangerAt) {
   if (val >= dangerAt) return t.blocked;
@@ -40,7 +41,7 @@ export default class WorkspaceStatusPlus extends View {
     cx.spawn(async (cx) => {
       try {
         const [m, d] = await Promise.all([
-          exec(MACMON, ["pipe", "-s", "1", "-i", "500", "--soc-info"]),
+          exec("sh", ["-c", MACMON_CMD]),
           exec("df", ["-k", "/System/Volumes/Data"]),
         ]);
         const j = JSON.parse(m.stdout.trim().split("\n")[0]);
