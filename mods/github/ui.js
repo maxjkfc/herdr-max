@@ -100,16 +100,20 @@ export function under(width, gap = 4) {
   return pressed ? { x: Math.max(4, pressed.x + pressed.width - width), y: pressed.y + pressed.height + gap } : "pointer";
 }
 
-// Buttons styled to match herdr-max controls (theme solid / raised / hover).
-export function button(id, label, t, onClick, { primary = false, invisible = false, enabled = true, icon: name = null, tint = null, small = false, tooltip = null } = {}) {
+// Buttons styled to match herdr-max dark controls (subtle tinted surface + colored border, never glaring solid blocks).
+export function button(id, label, t, onClick, { primary = false, invisible = false, enabled = true, icon: name = null, tint = null, color = null, small = false, tooltip = null } = {}) {
   const p = primer(t), solid = primary && enabled, h = small ? 28 : 32;
-  const fg = solid ? p.buttonFg : enabled ? (invisible ? t.muted : t.foreground) : t.dim;
+  const c = color ?? (primary ? p.open : null);
+  const bg = !enabled ? t.raised : solid ? `${c}28` : invisible ? "#00000000" : c ? `${c}14` : t.background;
+  const border = !enabled ? t.border : solid ? `${c}aa` : invisible ? "#00000000" : c ? `${c}66` : t.border;
+  const fg = !enabled ? t.dim : solid ? c : invisible ? t.muted : c ? c : t.foreground;
+  const hoverBg = solid ? `${c}3d` : c ? `${c}28` : t.hover;
   return h_flex().id(id).h(h).px(label === "" ? (small ? 7 : 9) : (small ? 10 : 13)).gap(6).flex_none().items_center().justify_center().rounded(7)
     .text_size(small ? 12.5 : 13.5).font_medium()
-    .bg(solid ? p.button : invisible ? "#00000000" : t.raised).border_1().border_color(solid ? p.button : invisible ? "#00000000" : t.border)
+    .bg(bg).border_1().border_color(border)
     .text_color(fg)
     .on_mouse_down("left", (e, cx) => { cx.stop_propagation(); if (e.bounds) pressed = e.bounds; })
-    .when(enabled, (e) => e.cursor_pointer().hover((s) => s.bg(solid ? p.buttonHover : t.hover).text_color(solid ? p.buttonFg : t.foreground)).on_click(onClick))
+    .when(enabled, (e) => e.cursor_pointer().hover((s) => s.bg(hoverBg).text_color(solid || c ? c : t.foreground)).on_click(onClick))
     .when(Boolean(tooltip), (e) => e.tooltip(tooltip))
     .when(Boolean(name), (e) => e.child(name === "spin" ? spinner(14, t.muted) : glyph(name, 14, tint ?? fg)))
     .when(label !== "", (e) => e.child(label));

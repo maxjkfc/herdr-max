@@ -20,14 +20,17 @@ function toggleSidePanel(child) {
   const panel = findNode(root, "panel");
   const body = findNode(root, "panel-body");
   const gitBody = findNode(root, "git-body");
-  if (gitBody && (child === "changes" || child === "graph" || child === "github")) {
-    const on = panel && !panel.hidden && body?.active === "git" && gitBody.active === child;
+  if (gitBody && (child === "changes" || child === "graph" || child === "github" || child === "prs" || child === "issues" || child === "actions")) {
+    const stackChild = child === "changes" || child === "graph" ? child : "github";
+    const ghTab = child === "github" ? "prs" : child;
+    const on = panel && !panel.hidden && body?.active === "git" && gitBody.active === stackChild;
     if (on) {
       run("layout.hide", { id: "panel" });
     } else {
-      setShared("git.subtab", child);
+      if (stackChild === "github") setShared("github.tab", ghTab);
+      setShared("git.subtab", stackChild === "github" ? ghTab : stackChild);
       run("layout.select", { stack: "panel-body", child: "git" });
-      run("layout.select", { stack: "git-body", child });
+      run("layout.select", { stack: "git-body", child: stackChild });
       run("layout.show", { id: "panel" });
     }
     return;
@@ -74,7 +77,7 @@ function loadBindings() {
 }
 
 function runAction(action, targetPane, targetCwd) {
-  if (action === "files" || action === "changes" || action === "graph" || action === "github") {
+  if (action === "files" || action === "changes" || action === "graph" || action === "github" || action === "prs" || action === "issues" || action === "actions") {
     toggleSidePanel(action);
     return;
   }
