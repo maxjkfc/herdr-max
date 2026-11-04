@@ -57,7 +57,7 @@ export async function checkouts(extra = []) {
 
 const ISSUE = "number,title,body,url,state,stateReason,labels,assignees,author,createdAt,updatedAt,comments,milestone";
 const SEARCH_ISSUE = "number,title,url,state,labels,assignees,author,createdAt,updatedAt,commentsCount,repository";
-const PR = "number,title,url,state,isDraft,labels,assignees,author,createdAt,updatedAt,headRefName,baseRefName,reviewDecision,statusCheckRollup,comments,additions,deletions,mergedAt";
+const PR = "number,title,url,state,isDraft,labels,assignees,author,createdAt,updatedAt,headRefName,baseRefName,headRefOid,mergeable,changedFiles,reviewDecision,statusCheckRollup,comments,additions,deletions,mergedAt";
 const SEARCH_PR = "number,title,url,state,isDraft,labels,author,createdAt,updatedAt,commentsCount,repository";
 const RUN = "databaseId,number,displayTitle,status,conclusion,workflowName,headBranch,headSha,event,createdAt,updatedAt,startedAt,url,attempt";
 
