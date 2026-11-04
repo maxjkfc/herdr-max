@@ -457,12 +457,12 @@ export class Viewer {
   // The right column: who, what, where.
   aside(i, t, cx) {
     const p = primer(t), pr = this.pr(), me = this.me, local = this.local(), ls = this.localState;
-    const quiet = (text) => div().text_size(12).text_color(t.muted).child(text);
-    const link = (id, label, onClick) => div().id(id).text_size(12).text_color(p.link).cursor_pointer().hover((s) => s.underline()).on_click(onClick).child(label);
+    const quiet = (text) => div().text_size(12.5).text_color(t.muted).child(text);
+    const link = (id, label, onClick) => div().id(id).text_size(12.5).text_color(p.link).cursor_pointer().hover((s) => s.underline()).on_click(onClick).child(label);
     const part = (title, body, extra = null) => v_flex().flex_none().gap(8).py(14).border_b(1).border_color(t.border)
-      .child(h_flex().items_center().text_size(12).font_semibold().text_color(t.muted).child(div().flex_1().child(title)).when(Boolean(extra), (e) => e.child(extra)))
+      .child(h_flex().items_center().text_size(12.5).font_semibold().text_color(t.muted).child(div().flex_1().child(title)).when(Boolean(extra), (e) => e.child(extra)))
       .child(body);
-    const person = (login) => h_flex().gap(8).items_center().text_size(13).child(this.face(login, null, 20, t, cx)).child(div().flex_1().min_w(0).truncate().font_semibold().child(display(login)));
+    const person = (login) => h_flex().gap(8).items_center().text_size(13.5).child(this.face(login, null, 20, t, cx)).child(div().flex_1().min_w(0).truncate().font_semibold().child(display(login)));
 
     const reviewers = new Map((i.reviews ?? []).map((r) => [loginOf(r.author), r.state]));
     for (const r of i.reviewRequests ?? []) if (r.login && !reviewers.has(r.login)) reviewers.set(r.login, "PENDING");
@@ -530,9 +530,9 @@ export class Viewer {
   // Under the title: the state pill, then who opened it, or what a pull request merges where.
   byline(i, t, cx) {
     const p = primer(t), pr = this.pr(), [icon, color, state] = pr ? prState(i, p) : issueState(i, p);
-    const ref = (name) => div().px(6).py(1).rounded(6).bg(`${p.link}22`).text_color(p.link).font_family(MONO).text_size(12).child(name);
+    const ref = (name) => div().px(6).py(1).rounded(5).border_1().border_color(`${p.link}55`).bg(`${p.link}18`).text_color(p.link).font_family(MONO).text_size(12.5).child(name);
     return h_flex().gap(8).items_center().flex_wrap().text_size(14).text_color(t.muted)
-      .child(h_flex().h(32).px(12).gap(6).items_center().rounded(16).bg(color).text_color("#ffffff").font_semibold().child(glyph(icon, 16, "#ffffff")).child(state))
+      .child(h_flex().h(30).px(10).gap(6).items_center().rounded(7).border_1().border_color(`${color}88`).bg(`${color}22`).text_color(color).font_semibold().child(glyph(icon, 15, color)).child(state))
       .when(pr, (e) => e.child(div().font_semibold().text_color(t.foreground).child(loginOf(i.author)))
         .child(div().child(upper(i.state) === "MERGED" ? "merged into" : "wants to merge into")).child(ref(i.baseRefName)).child(div().child("from")).child(ref(i.headRefName))
         .child(div().pl(6).text_color(p.open).child(`+${i.additions}`)).child(div().text_color(p.closed).child(`−${i.deletions}`)).child(div().child(`· ${i.changedFiles} files`))
