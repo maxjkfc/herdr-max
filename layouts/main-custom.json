@@ -146,25 +146,49 @@
                       }
                     },
                     {
-                      "id": "changes",
-                      "type": "block",
-                      "content": {
-                        "mod": "changes"
-                      }
-                    },
-                    {
-                      "id": "graph",
-                      "type": "block",
-                      "content": {
-                        "mod": "git-graph"
-                      }
-                    },
-                    {
-                      "id": "github",
-                      "type": "block",
-                      "content": {
-                        "mod": "github"
-                      }
+                      "id": "git",
+                      "type": "column",
+                      "resizable": false,
+                      "children": [
+                        {
+                          "id": "git-tabs",
+                          "type": "block",
+                          "content": {
+                            "mod": "git-hub"
+                          },
+                          "size": {
+                            "px": 40
+                          }
+                        },
+                        {
+                          "id": "git-body",
+                          "type": "stack",
+                          "children": [
+                            {
+                              "id": "changes",
+                              "type": "block",
+                              "content": {
+                                "mod": "changes"
+                              }
+                            },
+                            {
+                              "id": "graph",
+                              "type": "block",
+                              "content": {
+                                "mod": "git-graph"
+                              }
+                            },
+                            {
+                              "id": "github",
+                              "type": "block",
+                              "content": {
+                                "mod": "github"
+                              }
+                            }
+                          ],
+                          "active": "changes"
+                        }
+                      ]
                     }
                   ],
                   "active": "files"

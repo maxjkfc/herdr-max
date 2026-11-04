@@ -19,6 +19,19 @@ function toggleSidePanel(child) {
   const root = layout();
   const panel = findNode(root, "panel");
   const body = findNode(root, "panel-body");
+  const gitBody = findNode(root, "git-body");
+  if (gitBody && (child === "changes" || child === "graph" || child === "github")) {
+    const on = panel && !panel.hidden && body?.active === "git" && gitBody.active === child;
+    if (on) {
+      run("layout.hide", { id: "panel" });
+    } else {
+      setShared("git.subtab", child);
+      run("layout.select", { stack: "panel-body", child: "git" });
+      run("layout.select", { stack: "git-body", child });
+      run("layout.show", { id: "panel" });
+    }
+    return;
+  }
   const on = panel && !panel.hidden && body?.active === child;
   if (on) {
     run("layout.hide", { id: "panel" });
@@ -38,9 +51,9 @@ function formatLabel(action) {
     "mod.open:status-quota": "Quota details",
     "new-menu": "New agent / tab menu",
     "files": "Toggle Files panel",
-    "changes": "Toggle Changes (diff)",
-    "graph": "Toggle Git graph",
-    "github": "Toggle GitHub panel",
+    "changes": "Toggle Git: Changes (diff)",
+    "graph": "Toggle Git: Graph",
+    "github": "Toggle Git: Remote (PRs/Issues)",
   };
   if (custom[action]) return custom[action];
   const [name, arg] = action.split(":");

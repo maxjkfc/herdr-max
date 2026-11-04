@@ -35,9 +35,12 @@ function find(node, id) {
 }
 // Only the shown panel works; a pane copy always does.
 function hidden() {
-  const root = layout(), body = find(root, "panel-body");
+  const root = layout(), panel = find(root, "panel"), body = find(root, "panel-body"), gitBody = find(root, "git-body");
+  if (!panel) return false;
+  if (panel.hidden) return true;
+  if (gitBody) return body?.active !== "git" || gitBody.active !== "github";
   if (!body?.children?.some((c) => c.content?.mod === "github")) return false;
-  return find(root, "panel")?.hidden || find(body, body.active)?.content?.mod !== "github";
+  return find(body, body.active)?.content?.mod !== "github";
 }
 function location(last) {
   const space = spaces().find((s) => s.active), f = focused();
