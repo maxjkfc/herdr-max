@@ -53,6 +53,7 @@ A customized [Herdr](https://herdr.dev) desktop layout (`main-custom`) and mod s
 
 ### 7. `git-hub` & `github` — Unified Git Panel (`Changes | Graph | Remote`) & Issue-to-Worktree (`Ctrl+A` → `o`)
 - Consolidates local working-tree diff (`Changes`), branch route map (`Graph`), and remote forge (`Remote`: Issues, PRs, Actions CI, Milestones, Projects, Repo overview) under a single **Git** button in the top-right tab bar (`mods/git-hub` switcher + `mods/github`).
+- **One-click Pull**: a sync row under the tab bar shows the current branch with `↓behind` / `↑ahead` (read from the last fetch, no network) and a **↓ 拉取** button that runs `git pull --ff-only` in the focused pane's repo (also on remote machines). Fast-forward only: no merge commits, and a diverged branch fails with a toast instead of being rewritten. The result (already up to date / N commits pulled / failure reason) shows as a notification. The panel header height in `layouts/main-custom.json` is `72px` to fit this row.
 - **88% × 92% PR & Issue Dialog**:
   - **Conversation & Timeline**: Markdown with inline images, comments, review verdicts, labels, assignees, and close/reopen/comment composer.
   - **Files Changed (Diff) Tab**: Full two-column file list (`+`/`−` counts) + virtualized unified diff viewer inside the PR dialog.
