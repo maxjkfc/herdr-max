@@ -73,6 +73,7 @@
   },
   "mod:tmux-prefix": {
     "ctrl-a": "tmux-prefix.send-prefix",
+    "[": "tmux-prefix.scrollback",
     "g": "tmux-prefix.mod.open:picker-copy",
     "w": "tmux-prefix.mod.open:picker-copy",
     "m": "tmux-prefix.new-menu",
@@ -149,5 +150,13 @@
     "ctrl-p": "git-graph.up",
     "ctrl-j": "git-graph.down",
     "ctrl-k": "git-graph.up"
+  },
+  "mod:scrollback": {
+    "ctrl-n": "scrollback.down",
+    "ctrl-p": "scrollback.up",
+    "ctrl-j": "scrollback.down",
+    "ctrl-k": "scrollback.up",
+    "ctrl-d": "scrollback.half-down",
+    "ctrl-u": "scrollback.half-up"
   }
 }

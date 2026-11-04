@@ -56,12 +56,18 @@ A customized [Herdr](https://herdr.dev) desktop layout (`main-custom`) and mod s
   - Click the branch icon on any hovered Issue row, or click **Open Worktree** inside the Issue dialog, to automatically create `~/.herdr/worktrees/<repo>/feat/issue-<N>-<slug>`, bind `🎯 #<N>` in `shared("worktree-plus.meta")`, and switch to the new nested Worktree Space.
   - **Start agent** on an Issue includes a `🌱 在新 Worktree 啟動并綁定 Issue` toggle so the coding agent launches directly inside the isolated Issue Worktree with the full issue brief.
 
+
+### 8. `scrollback` — Terminal Copy & Scrollback Mode (`Ctrl+A` → `[`)
+- Tmux-style keyboard scrollback and copy viewer for reading long AI agent responses without a mouse or `Fn` key (`hc read <terminal> --lines 2500`).
+- Supports `j / k` (line), `u / d` (half-page), `b / f` (full page), `g / G` (top / bottom), `/` (live search with `n / N` match navigation), `v` (range selection), `y` / `Y` (copy line/range or copy all), and `q / Esc` to exit.
+
 ---
 
 ## Keybindings (`Ctrl+A` Prefix & Global)
 
 | Key | Action | Description |
 |---|---|---|
+| `Ctrl+A` → `[` | `scrollback` | Enter Terminal Copy / Scrollback mode (`j/k`, `u/d`, `b/f`, `g/G`, `/`, `v`, `y`) |
 | `Ctrl+A` → `h / j / k / l` | `pane.go` | Move focus left / down / up / right (repeatable within 500ms) |
 | `Ctrl+A` → `v` or `\` | `pane.split:right` | Split pane right |
 | `Ctrl+A` → `-` | `pane.split:down` | Split pane down |

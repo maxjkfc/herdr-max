@@ -1,0 +1,10 @@
+{
+  "place": "none",
+  "title": "Terminal Scrollback & Copy Mode",
+  "focusable": true,
+  "overlay": {
+    "kind": "dialog",
+    "width": 0.86,
+    "height": 0.90
+  }
+}
