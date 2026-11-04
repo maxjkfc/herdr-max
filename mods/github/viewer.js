@@ -15,7 +15,7 @@ const FIELDS = {
 const LINK = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(issues|pull)\/(\d+)(?:[/?#].*)?$/;
 const ROLE = { OWNER: "Owner", MEMBER: "Member", COLLABORATOR: "Collaborator", CONTRIBUTOR: "Contributor" };
 const VERDICT = { APPROVED: ["check-circle", "open", "approved these changes"], CHANGES_REQUESTED: ["x-circle", "closed", "requested changes"], COMMENTED: ["comment", null, "reviewed"], DISMISSED: ["skip", null, "had a review dismissed"] };
-const METHODS = [["merge", "Merge commit"], ["squash", "Squash and merge"], ["rebase", "Rebase and merge"]];
+const METHODS = [["merge", "Merge commit", "pr-merged"], ["squash", "Squash and merge", "commit"], ["rebase", "Rebase and merge", "branch"]];
 const MONO = "JetBrains Mono";
 const MAX_DIFF_ROWS = 5000;
 
@@ -382,8 +382,13 @@ export class Viewer {
         .when(this.merging, (e) => e.child(h_flex().gap(6).items_center().text_size(12).text_color(t.muted).child(spinner(12, t.working)).child("Merging…"))))
       .when(this.mergeOpen && !blocked, (e) => e.child(v_flex().gap(6).p(10).rounded(6).bg(t.raised).border_1().border_color(t.border)
         .child(div().text_size(12).text_color(t.muted).child(`Confirm merge of #${i.number} (${i.headRefName} → ${i.baseRefName}):`))
-        .child(h_flex().gap(8).flex_wrap().children(METHODS.map(([m, label]) =>
-          button(`pr-merge-${m}`, label, t, (_e, cx) => this.mergePr(m, cx), { primary: m === "merge", enabled: !this.merging }))))))
+        .child(h_flex().gap(8).flex_wrap().children(METHODS.map(([m, label, ic]) =>
+          button(`pr-merge-${m}`, label, t, (_e, cx) => this.mergePr(m, cx), {
+            primary: m === "merge",
+            color: m === "merge" ? p.open : m === "squash" ? p.done : p.link,
+            icon: ic,
+            enabled: !this.merging,
+          }))))))
       .when(Boolean(this.mergeError), (e) => e.child(div().text_size(12).text_color(p.closed).child(this.mergeError)));
 
     return v_flex().flex_none().rounded(6).border_1().border_color(t.border).overflow_hidden()
