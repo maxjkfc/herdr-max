@@ -1,6 +1,6 @@
 # herdr-max
 
-A developer-focused Herdr desktop layout (`layouts/main-custom.json`) and 6 modular extensions (`spaces-plus`, `worktree-plus`, `status-quota`, `workspace-status-plus`, `tmux-prefix`, `picker-copy`) that combine Spaces and Git Worktrees into a single tree with live agent & GitHub Issue badges, bring Herdr TUI's `Ctrl+A` prefix workflow to the desktop app, track multi-account Claude/Codex/Gemini quotas in the bottom-left sidebar, and display lightweight macOS CPU/RAM/SSD stats in the bottom bar.
+A developer-focused Herdr desktop layout (`layouts/main-custom.json`) and 7 modular extensions (`spaces-plus`, `worktree-plus`, `status-quota`, `workspace-status-plus`, `tmux-prefix`, `picker-copy`, `git-graph`) that combine Spaces and Git Worktrees into a single tree with live agent & GitHub Issue badges, bring Herdr TUI's `Ctrl+A` prefix workflow to the desktop app, track multi-account Claude/Codex/Gemini quotas in the bottom-left sidebar, show a git branch/merge graph in the right panel, and display lightweight macOS CPU/RAM/SSD stats in the bottom bar.
 
 ![herdr-max](preview.svg)
 
@@ -13,7 +13,7 @@ A developer-focused Herdr desktop layout (`layouts/main-custom.json`) and 6 modu
   4. **Sidebar Footer (`workspace-chrome`, `69px`)**: Settings & Add machine controls.
 - **Main Work Area (Right)**:
   1. **Top (`tabs`, `42px`)**: Built-in tab bar.
-  2. **Center (`work-body`)**: Active terminal panes with collapsible right-hand `panel` (`files` and `changes` stack, `368px`).
+  2. **Center (`work-body`)**: Active terminal panes with collapsible right-hand `panel` (`files`, `changes` and `graph` stack, `368px`). `graph` is the `git-graph` mod: commit lanes, ref chips, click-to-open commit detail; toggle with `Ctrl+A` → `r`.
   3. **Bottom Status Bar (`workspace-status-plus`, `28px`)**: Left shows machine, git branch, and agent count; right shows live `CPU %`, `RAM used/totalG (%)`, `SSD 剩 G`, and the command palette shortcut (`⌘P commands`).
 
 ## How it behaves
@@ -39,6 +39,7 @@ A developer-focused Herdr desktop layout (`layouts/main-custom.json`) and 6 modu
   - `mods/workspace-status-plus/main.js` (`mod.json`)
   - `mods/tmux-prefix/main.js` (`mod.json`)
   - `mods/picker-copy/main.js` (`mod.json`)
+  - `mods/git-graph/main.js` + `graph.js` (`mod.json`)
 - **Keys**: `keys.json` (`global`, `terminal`, `mod:tmux-prefix`, `mod:picker-copy`, `mod:worktree-plus`)
 
 ## Watch out
@@ -49,5 +50,5 @@ A developer-focused Herdr desktop layout (`layouts/main-custom.json`) and 6 modu
 
 ## Done when
 
-- `herdr-app check` passes on `mods/spaces-plus`, `mods/worktree-plus`, `mods/status-quota`, `mods/workspace-status-plus`, `mods/tmux-prefix`, and `mods/picker-copy`.
+- `herdr-app check` passes on `mods/spaces-plus`, `mods/worktree-plus`, `mods/status-quota`, `mods/workspace-status-plus`, `mods/tmux-prefix`, `mods/picker-copy`, and `mods/git-graph`.
 - `herdr-app status` reports `"layout": "main-custom"` and `"errors": []`.
