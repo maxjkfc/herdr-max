@@ -29,6 +29,7 @@ function toggleSidePanel(child) {
     } else {
       if (stackChild === "github") setShared("github.tab", ghTab);
       setShared("git.subtab", stackChild === "github" ? ghTab : stackChild);
+      setShared("git.focus", { target: stackChild, at: Date.now() });
       run("layout.select", { stack: "panel-body", child: "git" });
       run("layout.select", { stack: "git-body", child: stackChild });
       run("layout.show", { id: "panel" });

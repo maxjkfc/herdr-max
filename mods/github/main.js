@@ -65,6 +65,7 @@ export default class GitHub extends View {
     this.input.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
     this.input.on("blur", (_e, cx) => { this.typing = false; cx.notify(); });
     this.changedAt = shared("github.changed")?.at; this.pickedAt = shared("github.pick")?.at;
+    this.focusAt = shared("git.focus")?.at;
     this.sharedTab = shared("github.tab");
 
     cx.spawn(async (cx) => {
@@ -78,7 +79,8 @@ export default class GitHub extends View {
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
-        if (TABS[c]) this.setTab(c, cx);
+        if (c === "focus") { this.typing = false; this.handle.focus(); }
+        else if (TABS[c]) this.setTab(c, cx);
         else if (c === "down") {
           const items = this.filteredItems();
           if (items.length) this.selectedIdx = (this.selectedIdx + 1) % items.length;
@@ -452,6 +454,17 @@ export default class GitHub extends View {
       if (k === "escape") { this.typing = false; this.handle.focus(); cx.stop_propagation(); cx.notify(); }
       return;
     }
+    if (k === "escape" || k === "q") {
+      run("pane.go", { direction: "left" });
+      run("layout.hide", { id: "panel" });
+      cx.stop_propagation();
+      return;
+    }
+    if (k === "h" || k === "left") {
+      run("pane.go", { direction: "left" });
+      cx.stop_propagation();
+      return;
+    }
     if (k === "/") {
       this.typing = true;
       this.input.focus();
@@ -521,8 +534,20 @@ export default class GitHub extends View {
       this.selectedIdx = 0;
       this.refresh(cx, true);
     }
+    const focusReq = shared("git.focus");
+    if (focusReq?.at && focusReq.at !== this.focusAt && focusReq.target === "github") {
+      this.focusAt = focusReq.at;
+      this.typing = false;
+      this.handle.focus();
+      cx.timer.after(40, () => this.handle.focus());
+    }
 
     const away = hidden(), ctx = JSON.stringify([this.where().cwd, this.where().space]);
+    if (this.away && !away) {
+      this.typing = false;
+      this.handle.focus();
+      cx.timer.after(40, () => this.handle.focus());
+    }
     if ((this.away && !away) || (!away && ctx !== this.ctx)) { this.ctx = ctx; this.refresh(cx, true); }
     this.away = away;
     const changed = shared("github.changed");

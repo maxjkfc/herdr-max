@@ -1,6 +1,6 @@
 import { View, div, PathBuilder } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list } from "gpui-base";
-import { spaces, panes, focused, exec, theme, nextCommand } from "herdr";
+import { spaces, panes, focused, exec, theme, run, shared, nextCommand } from "herdr";
 import { layoutGraph, parseLog, relativeTime, LOG_FORMAT } from "./graph.js";
 
 const ROW = 32;        // px per commit row
@@ -43,12 +43,14 @@ export default class GitGraph extends View {
     this.all = localStorage.getItem("all") !== "0";
     this.selected = null; this.detail = null;
     this.handle = cx.focus_handle();
+    this.focusAt = shared("git.focus")?.at;
     this.refresh(cx, true);
     cx.timer.every(POLL_MS, (cx) => this.refresh(cx, false));
     cx.spawn(async (cx) => {
       for (;;) {
         const cmd = await nextCommand();
-        if (cmd === "down") this.step(1, cx);
+        if (cmd === "focus") { this.handle.focus(); cx.notify(); }
+        else if (cmd === "down") this.step(1, cx);
         else if (cmd === "up") this.step(-1, cx);
       }
     });
@@ -74,6 +76,13 @@ export default class GitGraph extends View {
       this.refresh(cx, true); cx.stop_propagation();
     } else if (k === "escape" && this.selected) {
       this.selected = null; this.detail = null; cx.stop_propagation(); cx.notify();
+    } else if (k === "escape" || k === "q") {
+      run("pane.go", { direction: "left" });
+      run("layout.hide", { id: "panel" });
+      cx.stop_propagation();
+    } else if (k === "h" || k === "left") {
+      run("pane.go", { direction: "left" });
+      cx.stop_propagation();
     }
   }
 
@@ -190,6 +199,12 @@ export default class GitGraph extends View {
 
   render(cx) {
     if (key() !== this.context) this.refresh(cx, true);
+    const focusReq = shared("git.focus");
+    if (focusReq?.at && focusReq.at !== this.focusAt && focusReq.target === "graph") {
+      this.focusAt = focusReq.at;
+      this.handle.focus();
+      cx.timer.after(40, () => this.handle.focus());
+    }
     const t = theme(), rows = this.graph.rows;
     const palette = [t.ansi4, t.ansi2, t.ansi5, t.ansi3, t.ansi6, t.accent, t.ansi1];
     const button = (id, label, on_click) => div().id(id).h(26).px(8).flex().items_center().rounded(6).text_size(13).text_color(t.muted)
