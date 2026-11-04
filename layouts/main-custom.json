@@ -158,6 +158,13 @@
                       "content": {
                         "mod": "git-graph"
                       }
+                    },
+                    {
+                      "id": "prs",
+                      "type": "block",
+                      "content": {
+                        "mod": "pr-panel"
+                      }
                     }
                   ],
                   "active": "files"

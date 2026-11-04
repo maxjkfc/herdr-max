@@ -12,8 +12,8 @@ A developer-focused Herdr desktop layout (`layouts/main-custom.json`) and 7 modu
   3. **Bottom-Left (`status-quota`, auto-sized `256px` or `28px` when folded, draggable top border)**: Header `▾ Quotas <updatedTime>` with `↻` (force refresh) and `⤢` (open detail popup). Lists each provider/account card with official Herdr icons (`icons/claude.svg`, `icons/codex.svg`, `icons/gemini.svg`), plan/account badge on the right, and per-window (`5h`, `7d`, `Argon`) percentage + color-coded progress bar columns underneath.
   4. **Sidebar Footer (`workspace-chrome`, `69px`)**: Settings & Add machine controls.
 - **Main Work Area (Right)**:
-  1. **Top (`tabs`, `42px`, mod `tabs-plus`)**: Tab bar cloned from Herdr's `tabs`, with Files / Changes / Graph panel buttons.
-  2. **Center (`work-body`)**: Active terminal panes with collapsible right-hand `panel` (`files`, `changes` and `graph` stack, `368px`). `graph` is the `git-graph` mod: commit lanes, ref chips, click-to-open commit detail; toggle with `Ctrl+A` → `r`.
+  1. **Top (`tabs`, `42px`, mod `tabs-plus`)**: Tab bar cloned from Herdr's `tabs`, with Files / Changes / Graph / PRs panel buttons.
+  2. **Center (`work-body`)**: Active terminal panes with collapsible right-hand `panel` (`files`, `changes`, `graph` and `prs` stack, `368px`). `graph` is the `git-graph` mod (commit lanes, ref chips, commit detail; `Ctrl+A` → `r`). `prs` is the `pr-panel` mod (PR list, diff, merge via `gh`; `Ctrl+A` → `o`).
   3. **Bottom Status Bar (`workspace-status-plus`, `28px`)**: Left shows machine, git branch, and agent count; right shows live `CPU %`, `RAM used/totalG (%)`, `SSD 剩 G`, and the command palette shortcut (`⌘P commands`).
 
 ## How it behaves
@@ -40,7 +40,8 @@ A developer-focused Herdr desktop layout (`layouts/main-custom.json`) and 7 modu
   - `mods/tmux-prefix/main.js` (`mod.json`)
   - `mods/picker-copy/main.js` (`mod.json`)
   - `mods/git-graph/main.js` + `graph.js` (`mod.json`)
-  - `mods/tabs-plus/main.js` + `graph.svg` (`mod.json`)
+  - `mods/tabs-plus/main.js` + `graph.svg` + `prs.svg` (`mod.json`)
+  - `mods/pr-panel/main.js` + `pr.js` (`mod.json`)
 - **Keys**: `keys.json` (`global`, `terminal`, `mod:tmux-prefix`, `mod:picker-copy`, `mod:worktree-plus`)
 
 ## Watch out
@@ -51,5 +52,5 @@ A developer-focused Herdr desktop layout (`layouts/main-custom.json`) and 7 modu
 
 ## Done when
 
-- `herdr-app check` passes on `mods/spaces-plus`, `mods/worktree-plus`, `mods/status-quota`, `mods/workspace-status-plus`, `mods/tmux-prefix`, `mods/picker-copy`, `mods/git-graph`, and `mods/tabs-plus`.
+- `herdr-app check` passes on `mods/spaces-plus`, `mods/worktree-plus`, `mods/status-quota`, `mods/workspace-status-plus`, `mods/tmux-prefix`, `mods/picker-copy`, `mods/git-graph`, `mods/tabs-plus`, and `mods/pr-panel`.
 - `herdr-app status` reports `"layout": "main-custom"` and `"errors": []`.
