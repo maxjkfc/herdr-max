@@ -383,7 +383,7 @@ export class Viewer {
       .when(this.mergeOpen && !blocked, (e) => e.child(v_flex().gap(6).p(10).rounded(6).bg(t.raised).border_1().border_color(t.border)
         .child(div().text_size(12).text_color(t.muted).child(`Confirm merge of #${i.number} (${i.headRefName} → ${i.baseRefName}):`))
         .child(h_flex().gap(8).flex_wrap().children(METHODS.map(([m, label]) =>
-          button(`pr-merge-${m}`, label, t, (_e, cx) => this.mergePr(m, cx), { primary: m === "squash", enabled: !this.merging }))))))
+          button(`pr-merge-${m}`, label, t, (_e, cx) => this.mergePr(m, cx), { primary: m === "merge", enabled: !this.merging }))))))
       .when(Boolean(this.mergeError), (e) => e.child(div().text_size(12).text_color(p.closed).child(this.mergeError)));
 
     return v_flex().flex_none().rounded(6).border_1().border_color(t.border).overflow_hidden()
