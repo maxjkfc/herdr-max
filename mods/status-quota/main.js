@@ -29,15 +29,15 @@ const narrow = () => (findNode(layout(), "sidebar")?.size?.px ?? Infinity) < 160
 
 function pctColor(t, rem) {
   if (rem == null) return t.dim;
-  if (rem <= 10) return t.blocked;
-  if (rem <= 30) return t.warning;
+  if (rem <= 10) return t.blocked ?? t.ansi1 ?? t.foreground;
+  if (rem <= 30) return t.warning ?? t.ansi3 ?? t.foreground;
   return t.foreground;
 }
 
 function barColor(t, rem) {
   if (rem == null) return t.dim;
-  if (rem <= 10) return t.blocked;
-  if (rem <= 30) return t.warning;
+  if (rem <= 10) return t.blocked ?? t.ansi1 ?? t.accent;
+  if (rem <= 30) return t.warning ?? t.ansi3 ?? t.accent;
   return t.accent;
 }
 

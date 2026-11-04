@@ -22,9 +22,11 @@ function find(node, id) {
 export function selectGitTab(id) {
   setShared("git.subtab", id);
   if (id === "changes" || id === "graph") {
+    setShared("git.focus", { target: id, at: Date.now() });
     run("layout.select", { stack: "git-body", child: id });
   } else {
     setShared("github.tab", id);
+    setShared("git.focus", { target: "github", at: Date.now() });
     run("layout.select", { stack: "git-body", child: "github" });
   }
 }

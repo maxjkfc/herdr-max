@@ -29,6 +29,7 @@ function toggleSidePanel(child) {
     } else {
       if (stackChild === "github") setShared("github.tab", ghTab);
       setShared("git.subtab", stackChild === "github" ? ghTab : stackChild);
+      setShared("git.focus", { target: stackChild, at: Date.now() });
       run("layout.select", { stack: "panel-body", child: "git" });
       run("layout.select", { stack: "git-body", child: stackChild });
       run("layout.show", { id: "panel" });
@@ -57,6 +58,7 @@ function formatLabel(action) {
     "changes": "Toggle Git: Changes (diff)",
     "graph": "Toggle Git: Graph",
     "github": "Toggle Git: Remote (PRs/Issues)",
+    "scrollback": "Copy / Scrollback mode (j/k/u/d/g/G)",
   };
   if (custom[action]) return custom[action];
   const [name, arg] = action.split(":");
@@ -76,7 +78,13 @@ function loadBindings() {
     });
 }
 
-function runAction(action, targetPane, targetCwd) {
+function runAction(action, targetPane, targetCwd, targetTerminal) {
+  if (action === "scrollback" || action === "mod.open:scrollback") {
+    const term = targetTerminal ?? focused()?.terminal ?? panes().find((p) => p.pane === targetPane)?.terminal ?? null;
+    setShared("scrollback.request", { terminal: term, pane: targetPane, cwd: targetCwd });
+    run("mod.open", { name: "scrollback" });
+    return;
+  }
   if (action === "files" || action === "changes" || action === "graph" || action === "github" || action === "prs" || action === "issues" || action === "actions") {
     toggleSidePanel(action);
     return;
@@ -134,7 +142,7 @@ export default class TmuxPrefix extends View {
     const f = focused();
     this.targetPane = f?.pane ?? null;
     this.targetCwd = f?.cwd ?? null;
-    this.all = false;
+    this.targetTerminal = f?.terminal ?? panes().find((p) => p.pane === f?.pane)?.terminal ?? null;
     this.closed = false;
     this.showHint = false;
     cx.timer.after(HINT_DELAY_MS, () => {
@@ -150,7 +158,7 @@ export default class TmuxPrefix extends View {
           this.sendPrefix(cx);
         } else if (cmd) {
           this.dismiss();
-          runAction(cmd, this.targetPane, this.targetCwd);
+          runAction(cmd, this.targetPane, this.targetCwd, this.targetTerminal);
         }
       }
     });
@@ -195,7 +203,7 @@ export default class TmuxPrefix extends View {
     const binding = allow && bindings.find((b) => b.displayKey === key || b.rawKey === key);
     this.dismiss();
     if (!binding) return;
-    runAction(binding.action, this.targetPane, this.targetCwd);
+    runAction(binding.action, this.targetPane, this.targetCwd, this.targetTerminal);
   }
 
   render() {

@@ -65,6 +65,7 @@ export default class GitHub extends View {
     this.input.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
     this.input.on("blur", (_e, cx) => { this.typing = false; cx.notify(); });
     this.changedAt = shared("github.changed")?.at; this.pickedAt = shared("github.pick")?.at;
+    this.focusAt = shared("git.focus")?.at;
     this.sharedTab = shared("github.tab");
 
     cx.spawn(async (cx) => {
@@ -78,8 +79,15 @@ export default class GitHub extends View {
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
-        if (TABS[c]) this.setTab(c, cx);
-        else if (c === "refresh") this.refresh(cx);
+        if (c === "focus") { this.typing = false; this.handle.focus(); }
+        else if (TABS[c]) this.setTab(c, cx);
+        else if (c === "down") {
+          const items = this.filteredItems();
+          if (items.length) this.selectedIdx = (this.selectedIdx + 1) % items.length;
+        } else if (c === "up") {
+          const items = this.filteredItems();
+          if (items.length) this.selectedIdx = (this.selectedIdx + items.length - 1) % items.length;
+        } else if (c === "refresh") this.refresh(cx);
         else if (c === "open") this.openFirst();
         else if (c === "switch" && !this.fixed) this.openPicker();
         else if (c === "all" || c === "follow") this.setPin(this.where().space, c === "all" ? "all" : null, cx);
@@ -159,13 +167,13 @@ export default class GitHub extends View {
 
   // ---- opening & actions ----
   localFor(repo) { const l = this.locals[repo]; return l ? { [repo]: { folder: l.folder, space: l.space ?? null } } : {}; }
-  open(item, kind, openMerge = false) {
+  open(item, kind) {
     openOverlay({
       mod: "github",
       kind: "dialog",
       width: 0.88,
       height: 0.92,
-      props: { item: { kind, repo: item.repo, number: item.number, me: this.account?.login, locals: this.localFor(item.repo), openMerge, data: kind === "pr" ? null : item.body !== undefined ? item : null } },
+      props: { item: { kind, repo: item.repo, number: item.number, me: this.account?.login, locals: this.localFor(item.repo), data: kind === "pr" ? null : item.body !== undefined ? item : null } },
     });
   }
   openRun(r) {
@@ -261,7 +269,7 @@ export default class GitHub extends View {
     const p = primer(t), [g, color, stateLabel] = prState(item, p), checks = item.statusCheckRollup ? checksOf(item) : null;
     const isOpen = String(item.state).toUpperCase() === "OPEN";
     const conflict = item.mergeable === "CONFLICTING";
-    const blocked = !isOpen || item.isDraft || conflict || checks?.state === "failure" || checks?.state === "pending";
+    const blocked = !isOpen || item.isDraft || conflict || !item.headRefOid || checks?.state === "failure" || checks?.state === "pending";
     const mergeExpanded = this.inlineMergeNum === item.number;
     const selected = this.selectedIdx === idx;
 
@@ -294,7 +302,7 @@ export default class GitHub extends View {
         }, { small: true, primary: !mergeExpanded, color: p.open, enabled: !blocked })))
         .when(!isOpen, (e) => e.child(div().text_size(11.5).text_color(color).child(stateLabel)))
         .child(div().flex_1())
-        .child(button(`pr-ag-${item.number}`, "⚡ Agent", t, (_e, cx) => { cx.stop_propagation(); this.startAgent(item, "pr", cx); }, { small: true, invisible: true })))
+        .child(button(`pr-ag-${item.number}`, "派 Agent", t, (_e, cx) => { cx.stop_propagation(); this.startAgent(item, "pr", cx); }, { small: true, invisible: true, icon: "agent" })))
       // Inline 1-click Merge Method strip when expanded
       .when(mergeExpanded && !blocked, (e) => e.child(h_flex().pt(4).gap(6).items_center().border_t(1).border_color(t.border)
         .children(METHODS.map(([m, label, ic]) => button(`pr-im-${item.number}-${m}`, label, t, (_e, cx) => {
@@ -336,10 +344,10 @@ export default class GitHub extends View {
           if (bound) run("space.select", { id: bound.space.id });
           else this.openWorktree(item);
         }, { small: true, primary: true, color: p.link }))
-        .child(button(`iss-ag-${item.number}`, "⚡ 派 Agent", t, (_e, cx) => {
+        .child(button(`iss-ag-${item.number}`, "派 Agent", t, (_e, cx) => {
           cx.stop_propagation();
           this.startAgent(item, "issue", cx);
-        }, { small: true, color: p.open }))
+        }, { small: true, color: p.open, icon: "agent" }))
         .child(div().flex_1())
         .child(div().text_size(11.5).text_color(t.dim).child(ago(item.updatedAt))));
   }
@@ -441,28 +449,65 @@ export default class GitHub extends View {
   }
 
   onKey(e, cx) {
+    const k = e.key;
     if (this.typing) {
-      if (e.key === "escape") { this.typing = false; this.handle.focus(); cx.stop_propagation(); cx.notify(); }
+      if (k === "escape") { this.typing = false; this.handle.focus(); cx.stop_propagation(); cx.notify(); }
+      return;
+    }
+    if (k === "escape" || k === "q") {
+      run("pane.go", { direction: "left" });
+      run("layout.hide", { id: "panel" });
+      cx.stop_propagation();
+      return;
+    }
+    if (k === "h" || k === "left") {
+      run("pane.go", { direction: "left" });
+      cx.stop_propagation();
+      return;
+    }
+    if (k === "/") {
+      this.typing = true;
+      this.input.focus();
+      cx.stop_propagation(); cx.notify();
+      return;
+    }
+    if (k === "1") { this.setTab("prs", cx); cx.stop_propagation(); return; }
+    if (k === "2") { this.setTab("issues", cx); cx.stop_propagation(); return; }
+    if (k === "3") { this.setTab("actions", cx); cx.stop_propagation(); return; }
+    if (k === "r") { this.refresh(cx); cx.stop_propagation(); return; }
+    if (k === "n" && !e.modifiers?.control && this.shownTab() === "issues" && this.repo() && !this.all()) {
+      this.create();
+      cx.stop_propagation();
       return;
     }
     const items = this.filteredItems();
     if (!items.length) return;
-    if (e.key === "j" || e.key === "down") {
+    const sel = items[this.selectedIdx] ?? items[0];
+    if (k === "j" || k === "down" || ((k === "j" || k === "n") && e.modifiers?.control)) {
       this.selectedIdx = (this.selectedIdx + 1) % items.length;
       cx.stop_propagation(); cx.notify();
-    } else if (e.key === "k" || e.key === "up") {
+    } else if (k === "k" || k === "up" || ((k === "k" || k === "p") && e.modifiers?.control)) {
       this.selectedIdx = (this.selectedIdx + items.length - 1) % items.length;
       cx.stop_propagation(); cx.notify();
-    } else if (e.key === "enter") {
-      const sel = items[this.selectedIdx];
+    } else if (k === "enter" || k === "d") {
       if (!sel) return;
       const tab = this.shownTab();
       if (tab === "actions") this.openRun(sel);
       else this.open(sel, tab === "prs" ? "pr" : "issue");
       cx.stop_propagation();
-    } else if (e.key === "w" && this.shownTab() === "issues") {
-      const sel = items[this.selectedIdx];
-      if (sel) this.openWorktree(sel);
+    } else if (k === "m" && this.shownTab() === "prs" && sel) {
+      this.inlineMergeNum = this.inlineMergeNum === sel.number ? null : sel.number;
+      cx.stop_propagation(); cx.notify();
+    } else if (k === "w" && this.shownTab() === "issues" && sel) {
+      const bound = this.boundWorktreeForIssue(sel.repo, sel.number);
+      if (bound) run("space.select", { id: bound.space.id });
+      else this.openWorktree(sel);
+      cx.stop_propagation();
+    } else if (k === "a" && sel && this.shownTab() !== "actions") {
+      this.startAgent(sel, this.shownTab() === "prs" ? "pr" : "issue", cx);
+      cx.stop_propagation();
+    } else if (k === "o" && sel?.url) {
+      openUrl(sel.url);
       cx.stop_propagation();
     }
   }
@@ -489,8 +534,20 @@ export default class GitHub extends View {
       this.selectedIdx = 0;
       this.refresh(cx, true);
     }
+    const focusReq = shared("git.focus");
+    if (focusReq?.at && focusReq.at !== this.focusAt && focusReq.target === "github") {
+      this.focusAt = focusReq.at;
+      this.typing = false;
+      this.handle.focus();
+      cx.timer.after(40, () => this.handle.focus());
+    }
 
     const away = hidden(), ctx = JSON.stringify([this.where().cwd, this.where().space]);
+    if (this.away && !away) {
+      this.typing = false;
+      this.handle.focus();
+      cx.timer.after(40, () => this.handle.focus());
+    }
     if ((this.away && !away) || (!away && ctx !== this.ctx)) { this.ctx = ctx; this.refresh(cx, true); }
     this.away = away;
     const changed = shared("github.changed");

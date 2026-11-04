@@ -43,7 +43,8 @@ A developer-focused Herdr desktop layout (`layouts/main-custom.json`) and modula
   - `mods/tabs-plus/main.js` + `graph.svg` (`mod.json`)
   - `mods/git-hub/main.js` (`mod.json`)
   - `mods/github/` (`main.js`, `viewer.js`, `actions.js`, `gh.js`, `ui.js`, `brief.js`, `run.js`, `timeline.js`, `media.js`, `log.js`, `mod.json`)
-- **Keys**: `keys.json` (`global`, `terminal`, `mod:tmux-prefix`, `mod:picker-copy`, `mod:worktree-plus`)
+  - `mods/scrollback/main.js` (`mod.json`)
+- **Keys**: `keys.json` (`global`, `terminal`, `mod:tmux-prefix`, `mod:picker-copy`, `mod:worktree-plus`, `mod:github`, `mod:git-graph`, `mod:scrollback`)
 
 ## Watch out
 
@@ -53,5 +54,5 @@ A developer-focused Herdr desktop layout (`layouts/main-custom.json`) and modula
 
 ## Done when
 
-- `herdr-app check` passes on `mods/spaces-plus`, `mods/worktree-plus`, `mods/status-quota`, `mods/workspace-status-plus`, `mods/tmux-prefix`, `mods/picker-copy`, `mods/git-graph`, `mods/tabs-plus`, `mods/git-hub`, and `mods/github`.
+- `herdr-app check` passes on `mods/spaces-plus`, `mods/worktree-plus`, `mods/status-quota`, `mods/workspace-status-plus`, `mods/tmux-prefix`, `mods/picker-copy`, `mods/git-graph`, `mods/tabs-plus`, `mods/git-hub`, `mods/github`, and `mods/scrollback`.
 - `herdr-app status` reports `"layout": "main-custom"` and `"errors": []`.

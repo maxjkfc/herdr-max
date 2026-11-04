@@ -1,6 +1,6 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { spaces, panes, run, openOverlay, theme, window, shared, layout, settings } from "herdr";
+import { spaces, panes, run, openOverlay, theme, window, shared, setShared, layout, settings } from "herdr";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -87,7 +87,14 @@ export default class Tabs extends View {
         .hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
         .on_click(() => {
           if (on) run("layout.hide", { id: "panel" });
-          else { run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: "panel" }); }
+          else {
+            if (id === "git") {
+              const gitBody = find(root, "git-body");
+              setShared("git.focus", { target: gitBody?.active ?? "changes", at: Date.now() });
+            }
+            run("layout.select", { stack: "panel-body", child: id });
+            run("layout.show", { id: "panel" });
+          }
         }).child(svg(icon).size(14)).child(label);
     };
     return h_flex().size_full().min_w(0).px(10).pl(lightsPadding).gap(3).items_center().bg(t.chrome).border_b(1).border_color(t.border)
