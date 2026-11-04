@@ -8,13 +8,13 @@ const MACMON_CMD = 'PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"; macmon pipe -
 
 function levelColor(t, val, warnAt, dangerAt) {
   if (val >= dangerAt) return t.blocked;
-  if (val >= warnAt) return t.warning;
+  if (val >= warnAt) return t.warning ?? t.working;
   return t.foreground;
 }
 
 function diskColor(t, freeGb) {
   if (freeGb <= 15) return t.blocked;
-  if (freeGb <= 35) return t.warning;
+  if (freeGb <= 35) return t.warning ?? t.working;
   return t.foreground;
 }
 

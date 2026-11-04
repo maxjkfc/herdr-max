@@ -121,7 +121,7 @@ export default class GitHubSwitcher extends View {
         .child(svg("mods/workspace-chrome/branch.svg").size(13).flex_none().text_color(t.muted))
         .child(div().min_w(0).truncate().text_size(12.5).font_semibold().child(s.branch))
         .when(!s.upstream, (e) => e.child(div().text_size(11).text_color(t.dim).child("無上游分支")))
-        .when(s.behind > 0, (e) => e.child(label(`↓${s.behind}`, t.warning)))
+        .when(s.behind > 0, (e) => e.child(label(`↓${s.behind}`, t.warning ?? t.working)))
         .when(s.ahead > 0, (e) => e.child(label(`↑${s.ahead}`, t.accent)))
         .when(s.upstream && s.behind === 0 && s.ahead === 0, (e) => e.child(div().text_size(11).text_color(t.dim).child("已同步")));
     }
