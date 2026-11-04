@@ -57,10 +57,19 @@
     "ctrl-7": "space.select:7",
     "ctrl-8": "space.select:8",
     "ctrl-9": "space.select:9",
-    "ctrl-a": "mod.open:tmux-prefix"
+    "ctrl-a": "mod.open:tmux-prefix",
+    "cmd-shift-up": {"command": "terminal.scroll", "args": {"pages": -0.5}},
+    "cmd-shift-down": {"command": "terminal.scroll", "args": {"pages": 0.5}},
+    "cmd-shift-home": {"command": "terminal.scroll", "args": {"to": "top"}},
+    "cmd-shift-end": {"command": "terminal.scroll", "args": {"to": "bottom"}},
+    "cmd-shift-k": {"command": "terminal.scroll", "args": {"lines": -3}},
+    "cmd-shift-j": {"command": "terminal.scroll", "args": {"lines": 3}},
+    "cmd-ctrl-g": {"command": "terminal.scroll", "args": {"to": "top"}},
+    "cmd-ctrl-shift-g": {"command": "terminal.scroll", "args": {"to": "bottom"}}
   },
   "terminal": {
     "cmd-c": "terminal.copy",
+    "cmd-f": "terminal.search",
     "cmd-v": "terminal.paste",
     "ctrl-v": "terminal.paste_image",
     "alt-left": "send:\u001bb",
@@ -73,7 +82,6 @@
   },
   "mod:tmux-prefix": {
     "ctrl-a": "tmux-prefix.send-prefix",
-    "[": "tmux-prefix.scrollback",
     "g": "tmux-prefix.mod.open:picker-copy",
     "w": "tmux-prefix.mod.open:picker-copy",
     "m": "tmux-prefix.new-menu",
@@ -138,25 +146,5 @@
     "ctrl-p": "worktree-plus.up",
     "ctrl-j": "worktree-plus.down",
     "ctrl-k": "worktree-plus.up"
-  },
-  "mod:github": {
-    "ctrl-n": "github.down",
-    "ctrl-p": "github.up",
-    "ctrl-j": "github.down",
-    "ctrl-k": "github.up"
-  },
-  "mod:git-graph": {
-    "ctrl-n": "git-graph.down",
-    "ctrl-p": "git-graph.up",
-    "ctrl-j": "git-graph.down",
-    "ctrl-k": "git-graph.up"
-  },
-  "mod:scrollback": {
-    "ctrl-n": "scrollback.down",
-    "ctrl-p": "scrollback.up",
-    "ctrl-j": "scrollback.down",
-    "ctrl-k": "scrollback.up",
-    "ctrl-d": "scrollback.half-down",
-    "ctrl-u": "scrollback.half-up"
   }
 }

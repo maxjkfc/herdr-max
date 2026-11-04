@@ -31,9 +31,14 @@ A customized [Herdr](https://herdr.dev) desktop layout (`main-custom`) and mod s
   - Click the `▾ Quotas` header to collapse/expand (`28px` folded rail).
 - **Detail Drawer**: Click any card or press `Ctrl+A` → `u` to open the full countdown popup with exact reset timestamps.
 
-### 4. `workspace-status-plus` — Bottom Bar with macOS CPU / RAM / SSD Telemetry
-- Displays live `CPU %`, `RAM used/total GB (%)`, and `SSD free GB` on the right side of the bottom status bar.
-- Polls every 8 seconds using a single ~13ms `sysctl`/`vm_stat`/`df` pipeline **only when the Herdr window is active** (`0%` background CPU).
+### 4. `workspace-status-plus` + `system-monitor` — Bottom Bar with macOS Telemetry (powered by `macmon`)
+- Right side of the bottom status bar shows live `CPU %`, `GPU %`, `TEMP`, `RAM used/total GB (%)`, and `SSD free GB`, sampled with [`macmon`](https://github.com/vladkens/macmon) (`brew install macmon`, Apple Silicon only) plus `df`.
+- Polls only when the Herdr window is active (default every 8s; the first poll is immediate).
+- **Click the readout** to open the `system-monitor` popup: CPU / GPU / RAM tiles, SSD, temperature, power, fans, and local / Tailscale / public IPv4 (the public IP is looked up through `api.ipify.org` only when the popup opens or is refreshed).
+- The popup also sets the **refresh interval** (2s / 5s / 8s / 15s / 30s / manual) and has buttons that open **Activity Monitor** or **macmon** in a new Herdr tab.
+
+### 4b. `toast` — Restyled Notifications
+- Rounded card with a level-colored border, accent strip, and icon badge. Where a toast appears is decided by Herdr and cannot be changed from a mod.
 
 ### 5. `tmux-prefix` & `picker-copy` — Herdr TUI (`Ctrl+A`) Keybindings
 - Brings Herdr TUI's `Ctrl+A` prefix workflow to Herdr App, reading bindings dynamically from `keys.json` (`mod:tmux-prefix`).
@@ -56,18 +61,12 @@ A customized [Herdr](https://herdr.dev) desktop layout (`main-custom`) and mod s
   - Click the branch icon on any hovered Issue row, or click **Open Worktree** inside the Issue dialog, to automatically create `~/.herdr/worktrees/<repo>/feat/issue-<N>-<slug>`, bind `🎯 #<N>` in `shared("worktree-plus.meta")`, and switch to the new nested Worktree Space.
   - **Start agent** on an Issue includes a `🌱 在新 Worktree 啟動并綁定 Issue` toggle so the coding agent launches directly inside the isolated Issue Worktree with the full issue brief.
 
-
-### 8. `scrollback` — Terminal Copy & Scrollback Mode (`Ctrl+A` → `[`)
-- Tmux-style keyboard scrollback and copy viewer for reading long AI agent responses without a mouse or `Fn` key (`hc read <terminal> --lines 2500`).
-- Supports `j / k` (line), `u / d` (half-page), `b / f` (full page), `g / G` (top / bottom), `/` (live search with `n / N` match navigation), `v` (range selection), `y` / `Y` (copy line/range or copy all), and `q / Esc` to exit.
-
 ---
 
 ## Keybindings (`Ctrl+A` Prefix & Global)
 
 | Key | Action | Description |
 |---|---|---|
-| `Ctrl+A` → `[` | `scrollback` | Enter Terminal Copy / Scrollback mode (`j/k`, `u/d`, `b/f`, `g/G`, `/`, `v`, `y`) |
 | `Ctrl+A` → `h / j / k / l` | `pane.go` | Move focus left / down / up / right (repeatable within 500ms) |
 | `Ctrl+A` → `v` or `\` | `pane.split:right` | Split pane right |
 | `Ctrl+A` → `-` | `pane.split:down` | Split pane down |
@@ -104,6 +103,16 @@ Paste into any agent running inside Herdr:
 `herdr-max` never overwrites Herdr's built-in `layouts/main.json` or built-in mods (`spaces`, `worktree`, `workspace-status`, `picker`).
 - Press **`Ctrl+Shift+L`** at any time to switch back to the default `main` layout.
 - Your previous `keys.json` is backed up to `~/.config/herdr-app/keys.json.bak`.
+
+## Scroll & Search Keys
+
+| Key | Action |
+|---|---|
+| `Cmd+F` | `terminal.search` — find in the focused terminal's screen and scrollback (Herdr app 0.1.13+) |
+| `Cmd+Shift+K` / `Cmd+Shift+J` | Scroll history up / down 3 lines (vim-style) |
+| `Cmd+Ctrl+G` / `Cmd+Ctrl+Shift+G` | Scroll to top / bottom |
+| `Cmd+Shift+↑` / `↓` | Scroll half a page up / down |
+| `Cmd+Shift+Home` / `End` | Scroll to top / bottom |
 
 ## License
 Apache-2.0

@@ -1,29 +1,9 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { spaces, agents, theme, run, window, keys, exec } from "herdr";
+import { spaces, agents, theme, run, window, keys, exec, shared, setShared, openOverlay } from "herdr";
 
-const STAT_CMD = `(sysctl -n hw.ncpu hw.memsize; echo "---PS---"; ps -A -o %cpu; echo "---VM---"; vm_stat; echo "---DF---"; df -k /System/Volumes/Data) | awk '
-BEGIN { mode="sys"; n=0 }
-/^---PS---$/ { mode="ps"; next }
-/^---VM---$/ { mode="vm"; next }
-/^---DF---$/ { mode="df"; next }
-mode=="sys" { n++; if (n==1) ncpu=$1; if (n==2) mem_total=$1 }
-mode=="ps" && $1 ~ /^[0-9]/ { cpu_sum += $1 }
-mode=="vm" && /page size of/ { for(i=1;i<=NF;i++) if($i=="of") psize=$(i+1)+0 }
-mode=="vm" && /^Anonymous pages:/ { anon=$NF+0 }
-mode=="vm" && /^Pages wired down:/ { wired=$NF+0 }
-mode=="vm" && /^Pages occupied by compressor:/ { comp=$NF+0 }
-mode=="df" && $1 ~ /^\\/dev\\// { df_total=$2+0; df_avail=$4+0 }
-END {
-  if (!psize) psize=16384
-  cpu = int((cpu_sum / (ncpu > 0 ? ncpu : 1)) + 0.5)
-  if (cpu > 100) cpu = 100
-  mem_total_gb = mem_total / (1024*1024*1024)
-  mem_used_gb = ((anon + wired + comp) * psize) / (1024*1024*1024)
-  mem_pct = mem_total_gb > 0 ? int((mem_used_gb / mem_total_gb)*100 + 0.5) : 0
-  disk_free_gb = int((df_avail * 1024) / (1024*1024*1024) + 0.5)
-  printf "{\\"cpu\\":%d,\\"memUsed\\":%.1f,\\"memTotal\\":%.0f,\\"memPct\\":%d,\\"diskFree\\":%d}\\n", cpu, mem_used_gb, mem_total_gb, mem_pct, disk_free_gb
-}'`;
+// A GUI-launched app may not have Homebrew on PATH, so name macmon in full.
+const MACMON = "/opt/homebrew/bin/macmon";
 
 function levelColor(t, val, warnAt, dangerAt) {
   if (val >= dangerAt) return t.blocked;
@@ -41,22 +21,60 @@ export default class WorkspaceStatusPlus extends View {
   init(_props, cx) {
     this.stats = null;
     this.busy = false;
+    this.last = 0;
+    this.refreshAt = shared("sys.refresh") ?? 0;
     this.poll(cx);
-    cx.timer.every(8000, (cx) => {
-      if (window()?.active) this.poll(cx);
+    // One-second tick; the interval (settings popup, `sys.interval`) decides when to poll.
+    cx.timer.every(1000, (cx) => {
+      // A macmon/df call that never returns must not freeze the readout forever.
+      if (this.busy && Date.now() - this.last > 10000) this.busy = false;
+      const every = shared("sys.interval") ?? 8000;
+      if (every > 0 && window()?.active && Date.now() - this.last >= every) this.poll(cx);
     });
   }
 
   poll(cx) {
     if (this.busy) return;
     this.busy = true;
+    this.last = Date.now();
     cx.spawn(async (cx) => {
       try {
-        const r = await exec("sh", ["-c", STAT_CMD]);
-        if (r.code === 0 && r.stdout.trim()) {
-          this.stats = JSON.parse(r.stdout.trim());
-          cx.notify();
-        }
+        const [m, d] = await Promise.all([
+          exec(MACMON, ["pipe", "-s", "1", "-i", "500", "--soc-info"]),
+          exec("df", ["-k", "/System/Volumes/Data"]),
+        ]);
+        const j = JSON.parse(m.stdout.trim().split("\n")[0]);
+        const row = d.stdout.trim().split("\n").pop().trim().split(/\s+/);
+        const GB = 1024 ** 3;
+        const memTotal = j.memory.ram_total / GB;
+        const memUsed = j.memory.ram_usage / GB;
+        const pct = (x) => Math.round((x ?? 0) * 100);
+        this.stats = {
+          cpu: Math.min(100, pct(j.cpu_usage_pct)),
+          gpu: pct(j.gpu_usage?.[1]),
+          temp: Math.round(j.temp?.cpu_temp_avg ?? 0),
+          memUsed: memUsed.toFixed(1),
+          memTotal: Math.round(memTotal),
+          memPct: Math.round((memUsed / memTotal) * 100),
+          diskFree: Math.round((Number(row[3]) * 1024) / GB),
+        };
+        // Everything the details popup shows, for any mod to read.
+        setShared("sys.stats", {
+          at: Date.now(),
+          soc: j.soc ?? null,
+          ...this.stats,
+          gpuTemp: Math.round(j.temp?.gpu_temp_avg ?? 0),
+          ecpu: { pct: pct(j.ecpu_scaled_ratio), mhz: Math.round(j.ecpu_freq_mhz ?? 0), cores: (j.ecpu_cores ?? []).map((c) => pct(c.scaled_ratio)) },
+          pcpu: { pct: pct(j.pcpu_scaled_ratio), mhz: Math.round(j.pcpu_freq_mhz ?? 0), cores: (j.pcpu_cores ?? []).map((c) => pct(c.scaled_ratio)) },
+          gpuMhz: Math.round(j.gpu_freq_mhz ?? 0),
+          power: { cpu: j.cpu_power ?? 0, gpu: j.gpu_power ?? 0, ane: j.ane_power ?? 0, all: j.all_power ?? 0, sys: j.sys_power ?? 0 },
+          fans: (j.fans ?? []).map((f) => ({ name: f.name, rpm: f.rpm, max: f.max_rpm })),
+          swapUsed: ((j.memory.swap_usage ?? 0) / GB).toFixed(1),
+          swapTotal: ((j.memory.swap_total ?? 0) / GB).toFixed(1),
+          diskTotal: Math.round((Number(row[1]) * 1024) / GB),
+          diskUsed: Math.round((Number(row[2]) * 1024) / GB),
+        });
+        cx.notify();
       } catch {}
       this.busy = false;
     });
@@ -80,7 +98,10 @@ export default class WorkspaceStatusPlus extends View {
     return key ? `${key}  commands` : "commands";
   }
 
-  render() {
+  render(cx) {
+    // The popup's "refresh now" button bumps `sys.refresh`.
+    const req = shared("sys.refresh") ?? 0;
+    if (req !== this.refreshAt) { this.refreshAt = req; this.poll(cx); }
     const t = theme();
     const space = spaces().find((s) => s.active);
     const list = agents();
@@ -123,8 +144,8 @@ export default class WorkspaceStatusPlus extends View {
             .gap(14)
             .items_center()
             .cursor_pointer()
-            .tooltip("點擊立即刷新系統資源狀態 (前台每 8 秒更新一次，背景自動暫停)")
-            .on_click((_e, cx) => this.poll(cx))
+            .tooltip("點擊查看系統資源詳細資訊與刷新設定")
+            .on_click(() => openOverlay({ mod: "system-monitor", kind: "popup", width: 380, height: 460 }))
             .child(
               h_flex()
                 .gap(4)
@@ -136,6 +157,32 @@ export default class WorkspaceStatusPlus extends View {
                     .text_color(levelColor(t, st.cpu, 70, 90))
                     .child(`${st.cpu}%`)
                 )
+            )
+            .child(
+              h_flex()
+                .gap(4)
+                .items_center()
+                .child(div().text_color(t.dim).child("GPU"))
+                .child(
+                  div()
+                    .font_semibold()
+                    .text_color(levelColor(t, st.gpu, 70, 90))
+                    .child(`${st.gpu}%`)
+                )
+            )
+            .when(st.temp > 0, (el) =>
+              el.child(
+                h_flex()
+                  .gap(4)
+                  .items_center()
+                  .child(div().text_color(t.dim).child("TEMP"))
+                  .child(
+                    div()
+                      .font_semibold()
+                      .text_color(levelColor(t, st.temp, 80, 95))
+                      .child(`${st.temp}°C`)
+                  )
+              )
             )
             .child(
               h_flex()
