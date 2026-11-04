@@ -498,13 +498,13 @@ export default class WorktreePlus extends View {
               .gap(4)
               .rounded(6)
               .border_1()
-              .border_color(st.dirty || st.unpushed > 0 ? t.warning : t.border)
+              .border_color(st.dirty || st.unpushed > 0 ? t.warning ?? t.working : t.border)
               .bg(t.surface)
               .child(
                 div()
                   .text_size(12)
                   .font_semibold()
-                  .text_color(st.dirty ? t.blocked : st.unpushed > 0 ? t.warning : t.accent)
+                  .text_color(st.dirty ? t.blocked : st.unpushed > 0 ? t.warning ?? t.working : t.accent)
                   .child(
                     st.dirty
                       ? `⚠️ 警告：有 ${st.dirtyCount} 個檔案尚未 commit（刪除目錄將會遺失變更！）`

@@ -25,7 +25,8 @@ const INTERVALS = [
 ];
 
 // Green / amber / red by load.
-const tone = (t, v, warn, danger) => (v >= danger ? t.blocked : v >= warn ? t.warning : t.done);
+// Not every theme defines `warning`; `working` is Herdr's amber and always exists.
+const tone = (t, v, warn, danger) => (v >= danger ? t.blocked : v >= warn ? t.warning ?? t.working : t.done);
 
 export default class SystemMonitor extends View {
   init(_props, cx) {
@@ -136,7 +137,7 @@ export default class SystemMonitor extends View {
 
     const fan = (s.fans ?? []).map((f) => f.rpm).join(" / ");
     const hot = Math.max(s.temp, s.gpuTemp);
-    const diskColor = s.diskFree <= 15 ? t.blocked : s.diskFree <= 35 ? t.warning : t.done;
+    const diskColor = s.diskFree <= 15 ? t.blocked : s.diskFree <= 35 ? t.warning ?? t.working : t.done;
 
     // Head and the refresh control stay pinned; the readouts scroll if the window is short.
     const body = v_flex().id("sm-body").flex_none().max_h(310).overflow_y_scrollbar().gap(8)

@@ -221,7 +221,7 @@ export default class StatusQuota extends View {
                         )
                     )
                     .when(Boolean(p.error), (el) =>
-                      el.child(div().text_size(11).text_color(t.warning).child(p.error))
+                      el.child(div().text_size(11).text_color(t.warning ?? t.working).child(p.error))
                     )
                 )
                 .when(Boolean((p.items ?? []).length), (el) =>
@@ -314,7 +314,7 @@ export default class StatusQuota extends View {
           )
       )
       .when(Boolean(p.error && !items.length), (el) =>
-        el.child(div().text_size(10.5).text_color(t.warning).child(p.error))
+        el.child(div().text_size(10.5).text_color(t.warning ?? t.working).child(p.error))
       )
       .when(items.length > 0, (el) =>
         el.child(
