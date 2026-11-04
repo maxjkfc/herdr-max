@@ -12,7 +12,9 @@ A customized [Herdr](https://herdr.dev) desktop layout (`main-custom`) and mod s
 - **Automatic Worktree Nesting**: Nests linked Git worktrees (`~/.herdr/worktrees/<repo>/<branch>`) directly under their parent Space—supporting both single-repo Spaces and multi-repo umbrella folders.
 - **Live Agent Status Pill**: Shows which coding agent (`omp`, `claude`, `codex`, etc.) is active inside each Space/Worktree and its real-time status (`working`, `blocked`, `done`, `idle`).
 - **Dynamic Issue Binding**: Displays the currently bound GitHub Issue (`🎯 #235 ...`) on a second line under each Worktree. Click the badge (or press `Ctrl+A` → `i`) at any time to switch or rebind the Issue as your work evolves.
-- **Zero-Friction Worktree Auto-Cleanup**: When you close a Worktree Space (`Cmd+W`, `Ctrl+A` → `x`, or `exit`), clean worktrees are automatically removed in the background (`git worktree remove` + `git branch -d`). If uncommitted files or unpushed commits exist, a safety dialog prompts before anything is deleted.
+- **Zero-Friction Worktree Auto-Cleanup**: Whenever the set of open Spaces/panes changes (e.g. you close a Worktree Space with `Cmd+W`, `Ctrl+A` → `x`, or `exit`), `~/.herdr/worktrees` is scanned and clean worktrees that are no longer open are removed in the background (`git worktree remove` + `git branch -d`). If uncommitted files or unpushed commits exist, a safety dialog prompts before anything is deleted.
+  - **Merged work counts as pushed**: a worktree whose HEAD is already in `origin/<default>` (normal merge / fast-forward), or whose GitHub PR was **squash/rebase-merged** with exactly this head commit (checked with `gh pr list --state merged`, 8s timeout), is cleaned without a prompt and its local branch is deleted with `-D` (`-d` refuses squash-merged branches). Dirty worktrees always still prompt.
+  - Only worktrees under `~/.herdr/worktrees/<repo>/<branch>` are scanned, so create worktrees there (`git worktree add ~/.herdr/worktrees/<repo>/<branch> -b <branch> origin/main`) to have them cleaned automatically.
 
 ### 2. `worktree-plus` — Multi-Repo & GitHub Issue Worktree Manager (`Ctrl+A` → `G`)
 - **Umbrella Workspace Support**: If your current Space is a parent folder containing multiple Git repositories, Step 1 lets you pick which sub-repository to branch from.
@@ -32,7 +34,7 @@ A customized [Herdr](https://herdr.dev) desktop layout (`main-custom`) and mod s
 - **Detail Drawer**: Click any card or press `Ctrl+A` → `u` to open the full countdown popup with exact reset timestamps.
 
 ### 4. `workspace-status-plus` + `system-monitor` — Bottom Bar with macOS Telemetry (powered by `macmon`)
-- Right side of the bottom status bar shows live `CPU %`, `GPU %`, `TEMP`, `RAM used/total GB (%)`, and `SSD free GB`, sampled with [`macmon`](https://github.com/vladkens/macmon) (`brew install macmon`, Apple Silicon only) plus `df`.
+- Right side of the bottom status bar shows live `CPU %`, `GPU %`, `TEMP`, `RAM used/total GB (%)`, and `SSD free GB`, sampled with [`macmon`](https://github.com/vladkens/macmon) (`brew install macmon`, Apple Silicon only; found via PATH plus both Homebrew prefixes) plus `df`.
 - Polls only when the Herdr window is active (default every 8s; the first poll is immediate).
 - **Click the readout** to open the `system-monitor` popup: CPU / GPU / RAM tiles, SSD, temperature, power, fans, and local / Tailscale / public IPv4 (the public IP is looked up through `api.ipify.org` only when the popup opens or is refreshed).
 - The popup also sets the **refresh interval** (2s / 5s / 8s / 15s / 30s / manual) and has buttons that open **Activity Monitor** or **macmon** in a new Herdr tab.

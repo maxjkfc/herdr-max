@@ -156,7 +156,7 @@ export default class SystemMonitor extends View {
       .hover((x) => x.bg(t.hover)).on_click(() => { on(); close(); }).child(label);
     const tools = h_flex().gap(8)
       .child(launcher("sm-activity", "↗ 活動監視器", () => exec("open", ["-a", "Activity Monitor"])))
-      .child(launcher("sm-macmon", "▸ macmon（終端機）", () => run("terminal.open", { argv: ["/opt/homebrew/bin/macmon"], place: "tab" })));
+      .child(launcher("sm-macmon", "▸ macmon（終端機）", () => run("terminal.open", { argv: ["sh", "-c", 'PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"; exec macmon'], place: "tab" })));
     return frame.child(head).child(segmented).child(body).child(tools);
   }
 }
