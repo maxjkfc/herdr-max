@@ -158,6 +158,13 @@
                       "content": {
                         "mod": "git-graph"
                       }
+                    },
+                    {
+                      "id": "github",
+                      "type": "block",
+                      "content": {
+                        "mod": "github"
+                      }
                     }
                   ],
                   "active": "files"

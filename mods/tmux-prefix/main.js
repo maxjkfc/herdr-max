@@ -40,6 +40,7 @@ function formatLabel(action) {
     "files": "Toggle Files panel",
     "changes": "Toggle Changes (diff)",
     "graph": "Toggle Git graph",
+    "github": "Toggle GitHub panel",
   };
   if (custom[action]) return custom[action];
   const [name, arg] = action.split(":");
@@ -60,7 +61,7 @@ function loadBindings() {
 }
 
 function runAction(action, targetPane, targetCwd) {
-  if (action === "files" || action === "changes" || action === "graph") {
+  if (action === "files" || action === "changes" || action === "graph" || action === "github") {
     toggleSidePanel(action);
     return;
   }

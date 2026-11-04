@@ -745,7 +745,7 @@ export default class SpacesPlus extends View {
                 .rounded(4)
                 .items_center()
                 .cursor_pointer()
-                .bg(issue ? t.surface : "transparent")
+                .bg(issue ? t.surface : "#00000000")
                 .hover((s) => s.bg(t.hover).text_color(t.foreground))
                 .tooltip("點擊切換 / 綁定此 Worktree 目前處理的 GitHub Issue (或按 Ctrl+A 接 i)")
                 .on_mouse_down("left", (_e, cx) => {
