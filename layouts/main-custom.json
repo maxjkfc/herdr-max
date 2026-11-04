@@ -90,7 +90,7 @@
           "id": "tabs",
           "type": "block",
           "content": {
-            "mod": "tabs"
+            "mod": "tabs-plus"
           },
           "size": {
             "px": 42
