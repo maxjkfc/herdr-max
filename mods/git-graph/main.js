@@ -3,8 +3,8 @@ import { v_flex, h_flex, Scrollbar, v_virtual_list } from "gpui-base";
 import { spaces, panes, focused, exec, theme, settings } from "herdr";
 import { layoutGraph, parseLog, relativeTime, LOG_FORMAT } from "./graph.js";
 
-const ROW = 28;        // px per commit row
-const LANE = 14;       // px per graph lane
+const ROW = 32;        // px per commit row
+const LANE = 16;       // px per graph lane
 const MAX_LANES = 12;  // wider graphs are clipped, the commit text keeps its room
 const LIMIT = 500;     // newest commits loaded
 const POLL_MS = 6000;
@@ -116,7 +116,7 @@ export default class GitGraph extends View {
   chip(ref, t) {
     const color = { head: t.accent, branch: t.ansi2, remote: t.ansi4, tag: t.ansi3 }[ref.kind];
     const solid = ref.kind === "head";
-    return div().h(16).px(5).flex().items_center().flex_none().max_w(120).truncate().rounded(4).text_size(10)
+    return div().h(19).px(6).flex().items_center().flex_none().max_w(130).truncate().rounded(4).text_size(12)
       .border_1().border_color(color).when(solid, (e) => e.bg(t.accent).text_color(t.accent_foreground)).when(!solid, (e) => e.text_color(color))
       .child(ref.name);
   }
@@ -126,7 +126,7 @@ export default class GitGraph extends View {
     const refs = [...r.commit.refs].sort((a, b) => (a.kind === "head" ? -1 : 0) - (b.kind === "head" ? -1 : 0));
     const cell = div().w(lanes * LANE).h(ROW).flex_none().relative().overflow_hidden()
       .children(r.segs.map((s) => window.paint_path(segPath(s), palette[s.color % palette.length]).absolute().top(0).left(0).size_full()))
-      .child(div().absolute().top(ROW / 2 - 5).left(r.node * LANE + LANE / 2 - 5).size(10).rounded(5)
+      .child(div().absolute().top(ROW / 2 - 6).left(r.node * LANE + LANE / 2 - 6).size(12).rounded(6)
         .border_2().border_color(c).bg(r.merge ? t.background : c));
     const sel = this.selected === r.commit.hash;
     return h_flex().id(`gg-${r.commit.hash}`).w_full().h(ROW).flex_none().items_center().gap(6).pr(10).cursor_pointer()
@@ -134,39 +134,39 @@ export default class GitGraph extends View {
       .child(cell)
       .child(h_flex().flex_1().min_w(0).gap(5).items_center()
         .children(refs.slice(0, 3).map((ref) => this.chip(ref, t)))
-        .when(refs.length > 3, (e) => e.child(div().flex_none().text_size(10).text_color(t.dim).child(`+${refs.length - 3}`)))
+        .when(refs.length > 3, (e) => e.child(div().flex_none().text_size(12).text_color(t.dim).child(`+${refs.length - 3}`)))
         .child(div().flex_1().min_w(0).truncate().child(r.commit.subject)))
-      .child(div().flex_none().text_size(11).text_color(t.dim).child(relativeTime(r.commit.time)));
+      .child(div().flex_none().text_size(12).text_color(t.dim).child(relativeTime(r.commit.time)));
   }
 
   detailView(t) {
     const commit = this.commits.find((c) => c.hash === this.selected);
     if (!commit) return null;
     const d = this.detail, color = { A: t.ansi2, D: t.ansi1, M: t.blocked, R: t.ansi4, C: t.ansi4 };
-    return v_flex().id("gg-detail").flex_none().max_h(220).overflow_y_scrollbar().p(10).gap(4).border_t(1).border_color(t.border)
+    return v_flex().id("gg-detail").flex_none().max_h(260).overflow_y_scrollbar().p(12).gap(4).border_t(1).border_color(t.border)
       .child(div().font_semibold().child(commit.subject))
-      .child(div().text_size(11).text_color(t.dim).child(`${commit.hash.slice(0, 10)} · ${commit.author} · ${fullDate(commit.time)}`))
-      .when(commit.parents.length > 1, (e) => e.child(div().text_size(11).text_color(t.dim).child(`merge of ${commit.parents.map((p) => p.slice(0, 7)).join(" + ")}`)))
-      .when(Boolean(d?.body), (e) => e.child(div().text_size(12).text_color(t.muted).child(d.body)))
-      .when(!d, (e) => e.child(div().text_size(11).text_color(t.dim).child("Loading…")))
-      .when(Boolean(d?.error), (e) => e.child(div().text_size(11).text_color(t.ansi1).child(d.error)))
-      .children((d?.files ?? []).slice(0, 100).map((f) => h_flex().gap(8).text_size(11).h(18).flex_none()
-        .child(div().w(12).flex_none().text_color(color[f.status] ?? t.muted).child(f.status))
+      .child(div().text_size(13).text_color(t.dim).child(`${commit.hash.slice(0, 10)} · ${commit.author} · ${fullDate(commit.time)}`))
+      .when(commit.parents.length > 1, (e) => e.child(div().text_size(13).text_color(t.dim).child(`merge of ${commit.parents.map((p) => p.slice(0, 7)).join(" + ")}`)))
+      .when(Boolean(d?.body), (e) => e.child(div().text_size(14).text_color(t.muted).child(d.body)))
+      .when(!d, (e) => e.child(div().text_size(13).text_color(t.dim).child("Loading…")))
+      .when(Boolean(d?.error), (e) => e.child(div().text_size(13).text_color(t.ansi1).child(d.error)))
+      .children((d?.files ?? []).slice(0, 100).map((f) => h_flex().gap(8).text_size(13).h(22).flex_none()
+        .child(div().w(14).flex_none().text_color(color[f.status] ?? t.muted).child(f.status))
         .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(f.path))))
-      .when((d?.files.length ?? 0) > 100, (e) => e.child(div().text_size(11).text_color(t.dim).child(`…and ${d.files.length - 100} more files`)));
+      .when((d?.files.length ?? 0) > 100, (e) => e.child(div().text_size(13).text_color(t.dim).child(`…and ${d.files.length - 100} more files`)));
   }
 
   render(cx) {
     if (key() !== this.context) this.refresh(cx, true);
     const t = theme(), rows = this.graph.rows;
     const palette = [t.ansi4, t.ansi2, t.ansi5, t.ansi3, t.ansi6, t.accent, t.ansi1];
-    const button = (id, label, on_click) => div().id(id).h(24).px(8).flex().items_center().rounded(6).text_size(11).text_color(t.muted)
+    const button = (id, label, on_click) => div().id(id).h(26).px(8).flex().items_center().rounded(6).text_size(13).text_color(t.muted)
       .cursor_pointer().hover((s) => s.bg(t.hover)).on_click(on_click).child(label);
     return v_flex().id("git-graph").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
-      .text_color(t.foreground).text_size(13)
+      .text_color(t.foreground).text_size(15)
       .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
         .child(div().font_semibold().child("Graph"))
-        .child(div().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(`${rows.length}${rows.length >= LIMIT ? "+" : ""} commits`))
+        .child(div().px(6).py(1).rounded(4).border_1().border_color(t.border).text_size(12).text_color(t.muted).child(`${rows.length}${rows.length >= LIMIT ? "+" : ""} commits`))
         .child(div().flex_1())
         .child(button("gg-scope", this.all ? "All branches" : "HEAD only", (_e, cx) => this.toggleScope(cx)))
         .child(button("gg-refresh", "↻", (_e, cx) => this.refresh(cx, true))))
