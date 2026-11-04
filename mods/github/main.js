@@ -267,7 +267,7 @@ export default class GitHub extends View {
     const p = primer(t), [g, color, stateLabel] = prState(item, p), checks = item.statusCheckRollup ? checksOf(item) : null;
     const isOpen = String(item.state).toUpperCase() === "OPEN";
     const conflict = item.mergeable === "CONFLICTING";
-    const blocked = !isOpen || item.isDraft || conflict || checks?.state === "failure" || checks?.state === "pending";
+    const blocked = !isOpen || item.isDraft || conflict || !item.headRefOid || checks?.state === "failure" || checks?.state === "pending";
     const mergeExpanded = this.inlineMergeNum === item.number;
     const selected = this.selectedIdx === idx;
 
