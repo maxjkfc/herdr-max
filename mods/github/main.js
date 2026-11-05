@@ -538,14 +538,12 @@ export default class GitHub extends View {
     if (focusReq?.at && focusReq.at !== this.focusAt && focusReq.target === "github") {
       this.focusAt = focusReq.at;
       this.typing = false;
-      this.handle.focus();
       cx.timer.after(40, () => this.handle.focus());
     }
 
     const away = hidden(), ctx = JSON.stringify([this.where().cwd, this.where().space]);
     if (this.away && !away) {
       this.typing = false;
-      this.handle.focus();
       cx.timer.after(40, () => this.handle.focus());
     }
     if ((this.away && !away) || (!away && ctx !== this.ctx)) { this.ctx = ctx; this.refresh(cx, true); }
