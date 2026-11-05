@@ -124,6 +124,10 @@ Paste into any agent running inside Herdr:
 
 `programs.json` gives `omp` (Oh My Pi) its own icon in the Agents list and pane headers (`icons/omp.svg`, taken from [can1357/oh-my-pi](https://github.com/can1357/oh-my-pi), MIT). `install.sh` copies the icon and only creates `programs.json` if you don't already have one.
 
+## Files (`files-plus`)
+
+A fork of Herdr's built-in `files` panel (`main-custom` shows it instead; the built-in is untouched). Under the header a row shows what the buttons act on, with **Finder**, **Zed** and **Chrome** buttons: the file being previewed, else the folder you last clicked, else the project root. Finder reveals a file (selects it) or opens a folder; Zed and Chrome open the path (`open -a Zed|"Google Chrome" <path>`, macOS). Hidden for a space on another machine, whose paths aren't on this computer.
+
 ## Review (`review`)
 
 The **審查** button in the Git panel's sync row (next to **↓ 拉取**) opens a review dialog of the repo under the focused pane, the same layout as the commit dialog: a changed-files folder tree with a filter on the left, the selected file's syntax-colored diff on the right. It also covers what the Changes panel does: the **worktree** button in the header (shown when the repo has more than one worktree) lists every worktree with its branch and how many uncommitted entries it holds, so you can look at a worktree an agent works in without focusing a terminal there (each worktree has its own scope and comment drafts); and when the shown worktree has uncommitted changes, a commit box under the file tree runs `git add -A` and `git commit` there (the box says how many changes go to which branch and worktree). Apart from that box and its own comment drafts, review writes nothing. Three scopes (keys `1` `2` `3`, remembered per repo; a branch that has left its base opens in the third):

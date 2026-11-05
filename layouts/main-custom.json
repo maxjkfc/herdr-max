@@ -142,7 +142,7 @@
                       "id": "files",
                       "type": "block",
                       "content": {
-                        "mod": "files"
+                        "mod": "files-plus"
                       }
                     },
                     {

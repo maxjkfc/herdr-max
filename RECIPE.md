@@ -34,6 +34,7 @@ A developer-focused Herdr desktop layout (`layouts/main-custom.json`) and modula
 - **Layout**: `layouts/main-custom.json`
 - **Mods**:
   - `mods/spaces-plus/main.js` (`mod.json`)
+  - `mods/files-plus/main.js` + 4 svgs (`mod.json`; fork of Herdr's `files`, with Finder / Zed / Chrome buttons)
   - `mods/worktree-plus/main.js` + `wt-helper.py` (`mod.json`)
   - `mods/status-quota/main.js` + `fetch-quota.py` (`mod.json`)
   - `mods/workspace-status-plus/main.js` (`mod.json`)
