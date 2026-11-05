@@ -71,7 +71,7 @@ export default class GitHub extends View {
 
     cx.spawn(async (cx) => {
       this.account = await account(); cx.notify();
-      if (this.account.state === "ready") this.refresh(cx);
+      this.refresh(cx);
       this.locals = await checkouts(this.roots); cx.notify();
     });
     cx.timer.every(SYNC, (cx) => { if (!hidden()) this.refresh(cx, true); });
@@ -135,9 +135,10 @@ export default class GitHub extends View {
   }
 
   refresh(cx, quiet = false) {
-    if (this.account?.state !== "ready") return;
     cx.spawn(async (cx) => {
       await this.follow();
+      // The origin's platform is shown even when gh can't serve it (not installed, signed out).
+      if (this.account?.state !== "ready") return cx.notify();
       const scope = this.scope();
       if (!scope) return cx.notify();
       const tab = this.shownTab(), key = this.key(tab), e = this.entry(key);
