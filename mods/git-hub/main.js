@@ -1,6 +1,6 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { exec, focused, layout, notify, panes, run, shared, setShared, spaces, theme, window } from "herdr";
+import { exec, focused, layout, notify, openOverlay, panes, run, shared, setShared, spaces, theme, window } from "herdr";
 import { describeRemote } from "./platform.js";
 
 const TABS = [
@@ -137,6 +137,13 @@ export default class GitHubSwitcher extends View {
     const needs = can && s.behind > 0;
     return h_flex().h(32).flex_none().px(10).gap(8).items_center().border_b(1).border_color(t.border)
       .child(h_flex().flex_1().min_w(0).child(info))
+      .child(div().id("git-review").h(24).px(10).flex_none().flex().items_center().rounded(6)
+        .border_1().border_color(t.border).bg(t.surface)
+        .text_size(12).font_semibold().text_color(s?.repo ? t.foreground : t.dim)
+        .when(Boolean(s?.repo), (e) => e.cursor_pointer().hover((x) => x.bg(t.hover)))
+        .tooltip("審查目前的變更（唯讀）：未提交、最後一個 commit、對 base")
+        .on_click(() => { if (s?.repo) openOverlay({ mod: "review", kind: "dialog", width: 0.88, height: 0.92, props: { root: s.root, on: s.on } }); })
+        .child("審查"))
       .child(div().id("git-pull").h(24).px(10).flex_none().flex().items_center().rounded(6)
         .border_1().border_color(needs ? t.accent : t.border)
         .bg(needs ? t.selected : t.surface)

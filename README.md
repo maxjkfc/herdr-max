@@ -124,6 +124,18 @@ Paste into any agent running inside Herdr:
 
 `programs.json` gives `omp` (Oh My Pi) its own icon in the Agents list and pane headers (`icons/omp.svg`, taken from [can1357/oh-my-pi](https://github.com/can1357/oh-my-pi), MIT). `install.sh` copies the icon and only creates `programs.json` if you don't already have one.
 
+## Review (`review`)
+
+The **審查** button in the Git panel's sync row (next to **↓ 拉取**) opens a read-only review dialog of the repo under the focused pane, the same layout as the commit dialog: a changed-files folder tree with a filter on the left, the selected file's syntax-colored diff on the right. Three scopes (keys `1` `2` `3`, remembered per repo; a branch that has left its base opens in the third):
+
+| Scope | Compares |
+|---|---|
+| 1 未提交 | working tree vs `HEAD` |
+| 2 最後一個 commit | the commit before `HEAD` → working tree (so the last commit plus anything uncommitted) |
+| 3 對 base | the merge-base with the base branch → working tree. Base is `origin/HEAD`, else `main`, else `master` |
+
+Untracked files are listed too (marked 新). Diffs are read per file when picked, with the same safe git flags as the Changes panel (no `index.lock`, no fsmonitor, no index rewrite). `j`/`k` switch files, `r` re-reads, `Esc` closes. Nothing is written. It is modelled on [herdr-reviewer](https://github.com/vytasgavelis/herdr-reviewer); comments on lines and sending them to an agent come next.
+
 ## PR Diff Viewer
 
 In the PR dialog the changed files are a column on the left of the diff (virtual list, `j`/`k` or `↑`/`↓` to switch, `+N −N` per file); the selected file's diff fills the right, **syntax-colored** in your theme's colors (JS/TS, Python, Rust, Go, C-family, Java/Kotlin, Ruby, PHP, shell, SQL, CSS, HTML/XML, YAML/TOML, JSON, Swift; other files stay plain). The **配色** button in the diff header cycles the diff colors (theme / vivid / GitHub / blue-orange colorblind-friendly) and remembers the choice. Add presets in `DIFF_PALETTES` in `mods/git-remote/diffview.js`. The commit dialog in `git-graph` renders its diff with the same `diffview.js`. The tokenizer (`highlight.js`) is from [herdr-reviewer](https://github.com/vytasgavelis/herdr-reviewer) (MIT, see `THIRD-PARTY-NOTICES`).
