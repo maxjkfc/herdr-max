@@ -57,7 +57,7 @@ export default class Review extends View {
     this.rowList = VirtualListScrollHandle.new();
     this.sentAt = shared("review.sent")?.at;
     // Worktrees of this repo (to look at another one), uncommitted entries here, and the commit box.
-    this.worktrees = []; this.dirty = 0; this.message = ""; this.committing = false;
+    this.worktrees = []; this.dirty = 0; this.message = ""; this.committing = false; this.wtItems = null; this.showMerged = false;
     this.commitInput = InputState.new({ placeholder: "Commit 訊息" });
     this.commitInput.on("change", (_e, cx) => { this.message = this.commitInput.value(); cx.notify(); });
     this.commitInput.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
@@ -343,36 +343,65 @@ export default class Review extends View {
     this.refresh(cx, true);
   }
 
-  // The worktree menu: every worktree with its branch and how many uncommitted entries it holds. It drops from the header
-  // inside this dialog; a popup would open at the last pointer position of the main window, not here.
+  // Is this worktree's work already in the base branch? A normal/fast-forward merge shows as HEAD being an ancestor of
+  // base; a squash or rebase merge of a GitHub PR only as a merged PR whose head commit is exactly this HEAD (asked via gh).
+  // A worktree sitting on the base tip itself (a fresh branch, or the base branch) has nothing to merge: not "merged".
+  async mergedState(w) {
+    const base = this.info?.base, o = { cwd: w.path, on: this.on };
+    if (!base || !w.branch || w.detached) return false;
+    const [head, tip] = await Promise.all([exec("git", [...READ, "rev-parse", "HEAD"], o), exec("git", [...READ, "rev-parse", base], o)]).catch(() => []);
+    if (head?.code !== 0 || tip?.code !== 0) return false;
+    const sha = head.stdout.trim();
+    if (sha === tip.stdout.trim()) return false;
+    const anc = await exec("git", [...READ, "merge-base", "--is-ancestor", sha, base], o).catch(() => null);
+    if (anc?.code === 0) return true;
+    const user = this.on ? null : shared("git-remote.user");
+    const args = ["pr", "list", "--head", w.branch, "--state", "merged", "--json", "headRefOid", "--limit", "10"];
+    const r = await (user ? exec("sh", ["-c", 'T=$(gh auth token --user "$0") || exit 3; GH_TOKEN=$T exec gh "$@"', user, ...args], o) : exec("gh", args, o)).catch(() => null);
+    try { return r?.code === 0 && JSON.parse(r.stdout).some((p) => p.headRefOid === sha); } catch { return false; }
+  }
+
+  // The worktree menu: every worktree with its branch, how many uncommitted entries it holds, and whether it is merged
+  // (filled in after the list shows: gh can take a moment). It drops from the header inside this dialog; a popup would
+  // open at the last pointer position of the main window, not here.
   openWtMenu(cx) {
     if (this.wtItems) { this.wtItems = null; cx.notify(); return; }
     const list = this.worktrees;
     cx.spawn(async (cx) => {
-      this.wtItems = await Promise.all(list.map(async (w) => {
+      const items = await Promise.all(list.map(async (w) => {
         const st = await exec("git", [...READ, "status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all"], { cwd: w.path, on: this.on }).catch(() => null);
-        return { path: w.path, branch: w.branch, detached: w.detached, dirty: st?.code === 0 ? dirtyCount(st.stdout) : null };
+        return { path: w.path, branch: w.branch, detached: w.detached, dirty: st?.code === 0 ? dirtyCount(st.stdout) : null, merged: null };
       }));
-      cx.notify();
+      this.wtItems = items; cx.notify();
+      await Promise.all(items.map(async (w) => { w.merged = await this.mergedState(w); cx.notify(); }));
     });
   }
 
   renderWtMenu(t) {
     const close = (_e, cx) => { this.wtItems = null; cx.notify(); };
+    const items = this.wtItems, nMerged = items.filter((w) => w.merged && w.path !== this.root).length;
+    const shown = items.filter((w) => this.showMerged || !w.merged || w.path === this.root);
+    const checking = items.some((w) => w.merged === null);
     return v_flex().id("wt-backdrop").absolute().inset_0().pt(46).pl(20).items_start().on_click(close)
       .child(v_flex().id("wt-menu").w(460).rounded(8).border_1().border_color(t.border).bg(t.popover).shadow_lg()
         .on_click((_e, cx) => cx.stop_propagation())
-        .child(div().flex_none().px(12).pt(10).pb(6).text_size(12.5).font_semibold().child("選擇要審查的 worktree"))
-        .child(v_flex().id("wt-list").max_h(300).overflow_y_scrollbar().px(4).pb(6).children(this.wtItems.map((w) => {
+        .child(h_flex().flex_none().px(12).pt(10).pb(6).gap(8).items_center()
+          .child(div().flex_1().text_size(12.5).font_semibold().child("選擇要審查的 worktree"))
+          .when(checking, (e) => e.child(div().text_size(11).text_color(t.dim).child("檢查合併狀態…")))
+          .when(nMerged > 0, (e) => e.child(div().id("wt-merged-toggle").px(6).py(2).rounded(4).text_size(11).text_color(t.muted).cursor_pointer()
+            .hover((x) => x.bg(t.hover)).on_click((_e, cx) => { this.showMerged = !this.showMerged; cx.notify(); })
+            .child(this.showMerged ? `隱藏已合併 (${nMerged})` : `顯示已合併 (${nMerged})`))))
+        .child(v_flex().id("wt-list").max_h(300).overflow_y_scrollbar().px(4).pb(6).children(shown.map((w) => {
           const current = w.path === this.root;
           return h_flex().id(`wt-${w.path}`).h(48).flex_none().px(10).gap(10).items_center().rounded(6).cursor_pointer()
-            .hover((x) => x.bg(t.hover)).bg(current ? t.selected : "#00000000")
+            .hover((x) => x.bg(t.hover)).bg(current ? t.selected : "#00000000").when(Boolean(w.merged), (e) => e.opacity(0.55))
             .on_click((_e, cx) => { this.wtItems = null; this.switchTo(w.path, cx); cx.notify(); })
             .child(div().w(14).flex_none().text_color(t.accent).child(current ? "✓" : ""))
             .child(v_flex().flex_1().min_w(0)
               .child(h_flex().gap(8).items_center()
                 .child(div().truncate().text_size(13).font_semibold().child(nameOf(w.path)))
                 .child(div().flex_none().text_size(11).text_color(t.ansi2).child(w.detached ? "（detached）" : w.branch ?? ""))
+                .when(Boolean(w.merged), (e) => e.child(div().flex_none().px(5).rounded(3).text_size(11).text_color(t.ansi5 ?? t.muted).border_1().border_color(t.border).child("已合併")))
                 .when(w.dirty > 0, (e) => e.child(div().flex_none().text_size(11).text_color(t.working).child(`${w.dirty} 個未提交`))))
               .child(div().truncate().text_size(11).font_family(MONO).text_color(t.dim).child(w.path)));
         }))));
