@@ -1,7 +1,8 @@
 import { View, div, PathBuilder } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list } from "gpui-base";
-import { spaces, panes, focused, exec, theme, run, shared, nextCommand } from "herdr";
+import { spaces, panes, focused, exec, theme, run, shared, nextCommand, openOverlay, closeOverlay, props } from "herdr";
 import { layoutGraph, parseLog, relativeTime, LOG_FORMAT } from "./graph.js";
+import { CommitDialog } from "./commit.js";
 
 const ROW = 32;        // px per commit row
 const LANE = 16;       // px per graph lane
@@ -39,6 +40,10 @@ function segPath(s) {
 
 export default class GitGraph extends View {
   init(_props, cx) {
+    // The right-click menu and the details dialog are this mod opened as overlays, told which by props.
+    const pr = props() ?? {};
+    if (pr.commit) { this.dialog = new CommitDialog(pr.commit, pr.overlay, cx); return; }
+    if (pr.menu) { this.menu = { ...pr.menu, overlay: pr.overlay }; return; }
     this.commits = []; this.graph = { rows: [], width: 1 };
     this.all = localStorage.getItem("all") !== "0";
     this.selected = null; this.detail = null;
@@ -197,12 +202,35 @@ export default class GitGraph extends View {
       .when((d?.files.length ?? 0) > 100, (e) => e.child(div().text_size(13).text_color(t.dim).child(`…and ${d.files.length - 100} more files`)));
   }
 
+  // Right-click on a commit row: a small menu at the pointer.
+  openMenu(hash) {
+    const commit = this.commits.find((c) => c.hash === hash);
+    if (!commit || !this.root) return;
+    openOverlay({ mod: "git-graph", kind: "popup", width: 210, height: 4 * 2 + 3 * 34, at: "pointer", props: { menu: { commit, root: this.root, on: this.on } } });
+  }
+
+  renderMenu(t) {
+    const m = this.menu;
+    const item = (id, label, hint, on_click) => h_flex().id(id).h(34).px(10).gap(8).items_center().rounded(6).cursor_pointer()
+      .hover((s) => s.bg(t.hover)).on_click(on_click)
+      .child(div().flex_1().text_size(13).child(label)).child(div().text_size(11).text_color(t.dim).child(hint));
+    const copy = (text) => (_e, cx) => { cx.write_to_clipboard(text); closeOverlay(m.overlay); };
+    return v_flex().id("gg-menu").size_full().p(4).bg(t.popover).text_color(t.foreground)
+      .child(item("gg-m-detail", "顯示詳細資訊", "", () => {
+        openOverlay({ mod: "git-graph", kind: "dialog", width: 0.88, height: 0.92, props: { commit: { commit: m.commit, root: m.root, on: m.on } } });
+        closeOverlay(m.overlay);
+      }))
+      .child(item("gg-m-hash", "複製完整 Hash", m.commit.hash.slice(0, 7), copy(m.commit.hash)))
+      .child(item("gg-m-subject", "複製標題", "", copy(m.commit.subject)));
+  }
+
   render(cx) {
+    if (this.dialog) return this.dialog.render(cx);
+    if (this.menu) return this.renderMenu(theme());
     if (key() !== this.context) this.refresh(cx, true);
     const focusReq = shared("git.focus");
     if (focusReq?.at && focusReq.at !== this.focusAt && focusReq.target === "graph") {
       this.focusAt = focusReq.at;
-      this.handle.focus();
       cx.timer.after(40, () => this.handle.focus());
     }
     const t = theme(), rows = this.graph.rows;
@@ -220,7 +248,8 @@ export default class GitGraph extends View {
       .child(div().flex_1().min_h(0).relative()
         .when(rows.length > 0, (e) => e
           .child(v_virtual_list("git-graph-list", rows.length, ROW, (i) => rows[i].commit.hash,
-            (range) => rows.slice(range.start, range.end).map((r) => this.row(r, palette, t))).on_item_click((hash, cx) => this.select(hash, cx)).size_full())
+            (range) => rows.slice(range.start, range.end).map((r) => this.row(r, palette, t))).on_item_click((hash, cx) => this.select(hash, cx))
+            .on_item_secondary_click((hash, _ev, _cx) => this.openMenu(hash)).size_full())
           .child(Scrollbar.vertical("git-graph-list").viewport_from_layout().absolute().inset_0()))
         .when(rows.length === 0, (e) => e.child(div().p(12).text_color(t.dim)
           .child(this.error || (this.loading ? "Loading graph…" : this.root ? "No commits yet" : "No folder")))))
