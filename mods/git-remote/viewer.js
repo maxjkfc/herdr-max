@@ -5,6 +5,7 @@ import { split, want, avatar } from "./media.js";
 import { entries, tally, loginOf } from "./timeline.js";
 import { primer, glyph, spinner, ago, openUrl, issueState, prState, checksOf, glyphOf, labelChip, button, badge } from "./ui.js";
 import { ghJson, gh, localState } from "./gh.js";
+import { parseDiff } from "./diff.js";
 import { issueBrief, prBrief } from "./brief.js";
 import { pickAgent, openIssueWorktree } from "./actions.js";
 
@@ -42,36 +43,6 @@ const upper = (s) => String(s ?? "").toUpperCase();
 function linkRefs(md, repo) {
   return md.split(/(```[\s\S]*?```|`[^`\n]+`)/).map((part, n) => n % 2 ? part
     : part.replace(/(^|[\s(])([\w.-]+\/[\w.-]+)?#(\d+)\b/g, (m, pre, other, num) => `${pre}[${other ?? ""}#${num}](https://github.com/${other ?? repo}/issues/${num})`)).join("");
-}
-
-export function parseDiff(text) {
-  const files = [];
-  for (const chunk of text.split(/^diff --git /m)) {
-    if (!chunk.trim()) continue;
-    const lines = chunk.split("\n");
-    const m = /^a\/(.+?) b\/(.+)$/.exec(lines[0] ?? "");
-    const path = m ? m[2] : (lines[0] ?? "").trim();
-    const file = { path, add: 0, del: 0, binary: false, rows: [] };
-    let oldLine = 0, newLine = 0;
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i];
-      if (line.startsWith("Binary files ") || line.startsWith("GIT binary patch")) { file.binary = true; continue; }
-      if (line.startsWith("--- ") || line.startsWith("+++ ") || line.startsWith("index ") || line.startsWith("new file") || line.startsWith("deleted file") || line.startsWith("similarity ") || line.startsWith("rename ")) continue;
-      if (line.startsWith("@@")) {
-        const hm = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
-        if (hm) { oldLine = Number(hm[1]); newLine = Number(hm[2]); }
-        file.rows.push({ kind: "@", text: line });
-      } else if (line.startsWith("+")) {
-        file.add++; file.rows.push({ kind: "+", number: newLine++, text: line.slice(1) });
-      } else if (line.startsWith("-")) {
-        file.del++; file.rows.push({ kind: "-", number: oldLine++, text: line.slice(1) });
-      } else if (line.startsWith(" ")) {
-        oldLine++; file.rows.push({ kind: " ", number: newLine++, text: line.slice(1) });
-      }
-    }
-    files.push(file);
-  }
-  return files;
 }
 
 // One issue or pull request in a dialog: { kind, repo, number, data?, me?, locals? } from the panel.

@@ -5,32 +5,54 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 
 HOME = os.path.expanduser("~")
 WT_ROOT = os.path.join(HOME, ".herdr", "worktrees")
 KEPT_FILE = os.path.join(HOME, ".cache", "herdr-quota", "kept-worktrees.json")
+# Worktrees seen open in a Herdr space at least once. One never seen (made with plain `git worktree add`, by a
+# script or an agent) is not an orphan until it is GRACE_SECS old, or it would be cleaned the moment it is created.
+SEEN_FILE = os.path.join(HOME, ".cache", "herdr-quota", "seen-worktrees.json")
+GRACE_SECS = 6 * 3600
 
 
-def load_kept():
+def _load_set(path):
     try:
-        with open(KEPT_FILE, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             return set(json.load(f))
     except Exception:
         return set()
 
 
-def mark_kept(path, kept=True):
-    s = load_kept()
-    if kept:
-        s.add(path)
+def _mark_set(path, item, on=True):
+    s = _load_set(path)
+    if on:
+        s.add(item)
     else:
-        s.discard(path)
+        s.discard(item)
     try:
-        os.makedirs(os.path.dirname(KEPT_FILE), exist_ok=True)
-        with open(KEPT_FILE, "w", encoding="utf-8") as f:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(sorted(s), f)
     except Exception:
         pass
+
+
+def load_kept():
+    return _load_set(KEPT_FILE)
+
+
+def mark_kept(path, kept=True):
+    _mark_set(KEPT_FILE, path, kept)
+
+
+def age_secs(folder):
+    """Seconds since the worktree was created: its `.git` file's birth time (macOS), else its mtime."""
+    try:
+        st = os.stat(os.path.join(folder, ".git"))
+        return time.time() - getattr(st, "st_birthtime", st.st_mtime)
+    except OSError:
+        return float("inf")
 
 
 def git_out(cwd, args):
@@ -210,6 +232,7 @@ def remove_wt(folder, delete_branch=False):
     except Exception:
         pass
     mark_kept(top_dir, False)
+    _mark_set(SEEN_FILE, top_dir, False)
     return {"ok": True}
 
 
@@ -236,6 +259,7 @@ def scan_orphans(open_paths_json):
     if not os.path.isdir(WT_ROOT):
         return {"prompt": None, "cleaned": []}
     kept = load_kept()
+    seen = _load_set(SEEN_FILE)
     cleaned = []
     prompt_folder = None
     for repo_name in sorted(os.listdir(WT_ROOT)):
@@ -248,10 +272,14 @@ def scan_orphans(open_paths_json):
                 continue
             in_use = any(p == wt_dir or p.startswith(wt_dir + "/") for p in open_paths)
             if in_use:
+                if wt_dir not in seen:
+                    _mark_set(SEEN_FILE, wt_dir)
                 if wt_dir in kept:
                     mark_kept(wt_dir, False)
                 continue
             if wt_dir in kept:
+                continue
+            if wt_dir not in seen and age_secs(wt_dir) < GRACE_SECS:
                 continue
             res = auto_clean_wt(wt_dir)
             if res.get("action") == "cleaned":

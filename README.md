@@ -125,7 +125,17 @@ Paste into any agent running inside Herdr:
 
 ## PR Diff Viewer
 
-In the PR dialog the changed files are a column on the left of the diff (virtual list, `j`/`k` or `↑`/`↓` to switch, `+N −N` per file); the selected file's diff fills the right. The **配色** button in the diff header cycles the diff colors (theme / vivid / GitHub / blue-orange colorblind-friendly) and remembers the choice. Add presets in `DIFF_PALETTES` in `mods/github/viewer.js`.
+In the PR dialog the changed files are a column on the left of the diff (virtual list, `j`/`k` or `↑`/`↓` to switch, `+N −N` per file); the selected file's diff fills the right. The **配色** button in the diff header cycles the diff colors (theme / vivid / GitHub / blue-orange colorblind-friendly) and remembers the choice. Add presets in `DIFF_PALETTES` in `mods/git-remote/viewer.js`.
+
+## Development
+
+| Command | What it checks |
+|---|---|
+| `bun test tests/` | Pure logic: remote-URL platform detection (`platform.js`), unified-diff parsing (`diff.js`). |
+| `scripts/check-mirrors.sh` | Files that must be identical copies because a mod cannot import another mod's files (`platform.js` in `git-remote` and `git-hub`). Add pairs to `PAIRS` in the script. |
+| `scripts/diff-live.sh [-d]` | What the repo ships vs what runs in `~/.config/herdr-app` (`HERDR_APP_HOME`): lists differing or missing files, `-d` prints the diffs. Run it before opening a PR so live fixes don't stay out of the repo. |
+
+The `worktree-plus` auto-clean leaves a worktree alone for 6 hours unless it has been open in a Herdr space at least once, so a worktree made with plain `git worktree add` is not removed the moment it is created. Mark a worktree permanent with `wt-helper.py keep-wt <path>`.
 
 ## License
 Apache-2.0
