@@ -1,8 +1,8 @@
 // A lazy file browser for the focused pane's folder, with bounded read-only previews. Fork of Herdr's `files`, plus
 // buttons that open the file (or folder) in Finder, Zed or Chrome.
-import { View, div, svg } from "gpui-kit";
+import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
-import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, window, notify, props, openOverlay, closeOverlay } from "herdr";
+import { spaces, panes, focused, exec, home, readTextFile, watchFolder, theme, settings, window, notify, props, openOverlay, closeOverlay } from "herdr";
 
 function location() {
   const space = spaces().find(s => s.active), f = focused();
@@ -13,6 +13,7 @@ function location() {
 const key = () => JSON.stringify(location());
 const LANG = { ts: "js", tsx: "js", mts: "js", cts: "js", jsx: "js", mjs: "js", toml: "yaml", jsonc: "json", svelte: "html", vue: "html" };
 const PER_FOLDER = 500, TOTAL = 5000;
+const IMAGES = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
 
 async function directory(path, on) {
   const windowsDirectory = async () => {
@@ -140,9 +141,25 @@ export default class Files extends View {
     cx.notify();
   }
 
+  // An image can only be drawn from the app's own folder, so it is copied there (one preview at a time, 20 MB at most).
+  showImage(path, cx) {
+    const ext = path.split(".").pop().toLowerCase(), n = (this.imageN = (this.imageN ?? 0) + 1);
+    const rel = `data/files-plus/preview-${n}.${ext}`, context = this.context, src = `${this.root}/${path}`;
+    cx.spawn(async cx => {
+      try {
+        const script = 'dir=$(dirname "$2"); mkdir -p "$dir" && [ "$(wc -c < "$1")" -le 20971520 ] && rm -f "$dir"/preview-* && cp "$1" "$2"';
+        const r = await exec("sh", ["-c", script, "files", src, `${home()}/.config/herdr-app/${rel}`]);
+        if (this.file !== path || !this.current(context)) return;
+        if (r.code === 0) this.image = rel; else this.fileError = "Cannot preview this image (too large or unreadable)";
+      } catch { if (this.file === path) this.fileError = "Cannot preview this image"; }
+      finally { cx.notify(); }
+    });
+  }
+
   show(path, cx) {
-    this.code?.release(); this.code = null; this.file = path; this.fileError = null;
+    this.code?.release(); this.code = null; this.file = path; this.fileError = null; this.image = null;
     if (!path || !cx) return;
+    if (!this.on && IMAGES.has(path.split(".").pop().toLowerCase())) { this.showImage(path, cx); return; }
     const context = this.context, root = this.root, on = this.on;
     cx.spawn(async cx => {
       try {
@@ -227,6 +244,8 @@ export default class Files extends View {
       .when(!this.file, el => el.child(v_flex().id("files-tree").flex_1().min_h(0).overflow_y_scrollbar().p(6).children(this.rows("", 0, [], t))
         .when(Boolean(this.error) || !this.entries.get("")?.length, el => el.child(div().p(8).text_size(12).text_color(t.dim).child(this.error || (this.loading ? "Loading files…" : this.root ? "No files" : "No folder"))))
         .when(this.limited, el => el.child(div().p(8).text_size(11).text_color(t.dim).child("File list limited to 500 entries per folder and 5,000 total")))))
-      .when(Boolean(this.file), el => el.child(this.code ? Editor.new(this.code).flex_1().min_h(0) : div().p(12).text_color(t.dim).child(this.fileError || "Loading file…")));
+      .when(Boolean(this.file) && Boolean(this.image), el => el.child(div().id("files-image").flex_1().min_h(0).p(12).flex().items_center().justify_center().overflow_hidden()
+        .child(image(this.image).max_w_full().max_h_full())))
+      .when(Boolean(this.file) && !this.image, el => el.child(this.code ? Editor.new(this.code).flex_1().min_h(0) : div().p(12).text_color(t.dim).child(this.fileError || "Loading file…")));
   }
 }
