@@ -2,7 +2,8 @@ import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
 import { spaces, panes, agents, focused, run, layout, theme, openOverlay, closeOverlay, notify, props, shared, setShared, nextCommand } from "herdr";
 import { primer, glyph, spinner, ago, openUrl, issueState, prState, runState, checksOf, glyphOf, labelChip, button, blankslate, skeleton } from "./ui.js";
-import { gh, ghJson, account, repoOf, checkouts, load, localState, ROOTS } from "./gh.js";
+import { gh, ghJson, account, remoteOf, checkouts, load, localState, ROOTS } from "./gh.js";
+import { githubSlug } from "./platform.js";
 import { issueBrief, prBrief } from "./brief.js";
 import { Viewer } from "./viewer.js";
 import { RunView } from "./run.js";
@@ -31,9 +32,9 @@ function hidden() {
   const root = layout(), panel = find(root, "panel"), body = find(root, "panel-body"), gitBody = find(root, "git-body");
   if (!panel) return false;
   if (panel.hidden) return true;
-  if (gitBody) return body?.active !== "git" || gitBody.active !== "github";
-  if (!body?.children?.some((c) => c.content?.mod === "github")) return false;
-  return find(body, body.active)?.content?.mod !== "github";
+  if (gitBody) return body?.active !== "git" || gitBody.active !== "git-remote";
+  if (!body?.children?.some((c) => c.content?.mod === "git-remote")) return false;
+  return find(body, body.active)?.content?.mod !== "git-remote";
 }
 function location(last) {
   const space = spaces().find((s) => s.active), f = focused();
@@ -55,8 +56,8 @@ export default class GitHub extends View {
     this.handle = cx.focus_handle();
     this.fixed = pr.repo ?? null;
     this.roots = Array.isArray(pr.roots) ? pr.roots : [];
-    this.repos = remembered("repos"); this.pins = remembered("pins"); this.spaceRepos = remembered("spaces");
-    this.tab = shared("github.tab") ?? "prs";
+    this.remotes = remembered("remotes"); this.pins = remembered("pins"); this.spaceRepos = remembered("spaces");
+    this.tab = shared("git-remote.tab") ?? "prs";
     this.f = remembered("filters", null) ?? { prs: { state: "open", mine: false }, issues: { state: "open", mine: false }, actions: { failing: false, branch: false } };
     this.limit = PAGE; this.data = {}; this.locals = {}; this.query = "";
     this.selectedIdx = 0; this.inlineMergeNum = null; this.mergingNum = null;
@@ -64,9 +65,9 @@ export default class GitHub extends View {
     this.input.on("change", (_e, cx) => { this.query = this.input.value(); this.limit = PAGE; this.selectedIdx = 0; cx.notify(); });
     this.input.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
     this.input.on("blur", (_e, cx) => { this.typing = false; cx.notify(); });
-    this.changedAt = shared("github.changed")?.at; this.pickedAt = shared("github.pick")?.at;
+    this.changedAt = shared("git-remote.changed")?.at; this.pickedAt = shared("git-remote.pick")?.at;
     this.focusAt = shared("git.focus")?.at;
-    this.sharedTab = shared("github.tab");
+    this.sharedTab = shared("git-remote.tab");
 
     cx.spawn(async (cx) => {
       this.account = await account(); cx.notify();
@@ -121,9 +122,16 @@ export default class GitHub extends View {
     const { cwd, on, space } = this.where();
     if (!cwd || on) return;
     const id = JSON.stringify([cwd, on]);
-    if (!(id in this.repos)) { this.repos[id] = await repoOf(cwd, on); keep("repos", this.repos); }
-    const found = this.repos[id] ?? null;
+    if (!(id in this.remotes)) { this.remotes[id] = await remoteOf(cwd, on); keep("remotes", this.remotes); }
+    const found = githubSlug(this.remotes[id]);
     if ((this.spaceRepos[space] ?? null) !== found) { this.spaceRepos[space] = found; keep("spaces", this.spaceRepos); }
+  }
+
+  // The platform of the focused folder's origin when it is not one this panel can show (GitLab, Bitbucket, …).
+  foreign() {
+    const { cwd, on } = this.where();
+    const r = cwd && !on ? this.remotes[JSON.stringify([cwd, on])] : null;
+    return r && !githubSlug(r) ? r : null;
   }
 
   refresh(cx, quiet = false) {
@@ -152,7 +160,7 @@ export default class GitHub extends View {
 
   setTab(tab, cx) {
     this.tab = tab; this.limit = PAGE; this.selectedIdx = 0; this.inlineMergeNum = null;
-    setShared("github.tab", tab); setShared("git.subtab", tab);
+    setShared("git-remote.tab", tab); setShared("git.subtab", tab);
     this.refresh(cx); cx.notify();
   }
   setFilter(tab, patch, cx) {
@@ -169,7 +177,7 @@ export default class GitHub extends View {
   localFor(repo) { const l = this.locals[repo]; return l ? { [repo]: { folder: l.folder, space: l.space ?? null } } : {}; }
   open(item, kind) {
     openOverlay({
-      mod: "github",
+      mod: "git-remote",
       kind: "dialog",
       width: 0.88,
       height: 0.92,
@@ -178,7 +186,7 @@ export default class GitHub extends View {
   }
   openRun(r) {
     const l = this.locals[r.repo];
-    openOverlay({ mod: "github", kind: "dialog", width: 0.8, height: 0.88, props: { run: { run: r, local: l ? { folder: l.folder, space: l.space ?? null } : null } } });
+    openOverlay({ mod: "git-remote", kind: "dialog", width: 0.8, height: 0.88, props: { run: { run: r, local: l ? { folder: l.folder, space: l.space ?? null } : null } } });
   }
   async brief(item, kind) {
     const fields = kind === "pr"
@@ -513,7 +521,7 @@ export default class GitHub extends View {
   }
 
   shell(t) {
-    return v_flex().id("github").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
+    return v_flex().id("git-remote").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
       .text_color(t.foreground).text_size(14).track_focus(this.handle)
       .on_key_down((e, cx) => this.onKey(e, cx));
   }
@@ -528,14 +536,14 @@ export default class GitHub extends View {
     if (this.picker) return this.renderPicker(t);
     if (this.form) return this.renderCreate(t);
 
-    const extTab = shared("github.tab");
+    const extTab = shared("git-remote.tab");
     if (extTab && TABS[extTab] && extTab !== this.tab) {
       this.tab = extTab;
       this.selectedIdx = 0;
       this.refresh(cx, true);
     }
     const focusReq = shared("git.focus");
-    if (focusReq?.at && focusReq.at !== this.focusAt && focusReq.target === "github") {
+    if (focusReq?.at && focusReq.at !== this.focusAt && focusReq.target === "git-remote") {
       this.focusAt = focusReq.at;
       this.typing = false;
       cx.timer.after(40, () => this.handle.focus());
@@ -548,11 +556,15 @@ export default class GitHub extends View {
     }
     if ((this.away && !away) || (!away && ctx !== this.ctx)) { this.ctx = ctx; this.refresh(cx, true); }
     this.away = away;
-    const changed = shared("github.changed");
+    const changed = shared("git-remote.changed");
     if (changed?.at && changed.at !== this.changedAt) { this.changedAt = changed.at; this.refresh(cx, true); }
-    const picked = shared("github.pick");
+    const picked = shared("git-remote.pick");
     if (picked?.at && picked.at !== this.pickedAt) { this.pickedAt = picked.at; this.setPin(picked.space, picked.value, cx); }
 
+    const other = this.foreign();
+    if (other && !this.scope()) return this.shell(t).child(blankslate(t, { icon: "repo", title: `偵測到 ${other.label}，目前僅支援 GitHub`,
+      body: `origin 指向 ${other.host}/${other.slug}。這個面板的 PR / Issue / CI 透過 GitHub CLI (gh) 取得，${other.label} 的內容尚無法顯示；Changes 與 Graph 分頁不受影響。`,
+      actions: [button("pick", "選擇 GitHub Repo", t, () => this.openPicker(), { icon: "repos", primary: true })] }));
     const a = this.account;
     if (!a) return this.shell(t).child(blankslate(t, { icon: "spin", title: "正在連線至 GitHub…", body: "讀取本機 gh 登入狀態中。" }));
     if (a.state === "missing") return this.shell(t).child(blankslate(t, { icon: "github", title: "找不到 GitHub CLI (gh)", body: "請先安裝 gh 並登入帳號。", actions: [button("install", "前往安裝 gh", t, () => openUrl("https://cli.github.com"), { icon: "external", primary: true })] }));
@@ -572,7 +584,7 @@ export default class GitHub extends View {
 
   // ---- Repository picker popup ----
   openPicker(at = "pointer") {
-    openOverlay({ mod: "github", kind: "popup", width: 340, height: 440, at, props: { picker: { space: this.where().space, repo: this.spaceRepos[this.where().space] ?? null, pin: this.pin(), owners: this.owners() } } });
+    openOverlay({ mod: "git-remote", kind: "popup", width: 340, height: 440, at, props: { picker: { space: this.where().space, repo: this.spaceRepos[this.where().space] ?? null, pin: this.pin(), owners: this.owners() } } });
   }
   initPicker(spec, overlay, cx) {
     this.picker = { ...spec, overlay, repos: remembered("d:picker", null), q: "" };
@@ -584,7 +596,7 @@ export default class GitHub extends View {
       cx.notify();
     });
   }
-  pick(value) { setShared("github.pick", { space: this.picker.space, value, at: Date.now() }); closeOverlay(this.picker.overlay); }
+  pick(value) { setShared("git-remote.pick", { space: this.picker.space, value, at: Date.now() }); closeOverlay(this.picker.overlay); }
   renderPicker(t) {
     const p = primer(t), s = this.picker, q = s.q.trim().toLowerCase();
     const row = (id, g, title, note, on, onClick) => h_flex().id(id).h(40).flex_none().px(10).gap(10).items_center().rounded(6).cursor_pointer().hover((x) => x.bg(t.hover)).on_click(onClick)
@@ -606,7 +618,7 @@ export default class GitHub extends View {
   }
 
   // ---- New Issue dialog ----
-  create() { openOverlay({ mod: "github", kind: "dialog", modal: true, width: 640, height: 480, props: { create: { repo: this.repo(), me: this.account?.login, locals: this.localFor(this.repo()) } } }); }
+  create() { openOverlay({ mod: "git-remote", kind: "dialog", modal: true, width: 640, height: 480, props: { create: { repo: this.repo(), me: this.account?.login, locals: this.localFor(this.repo()) } } }); }
   initCreate(spec, overlay, cx) {
     this.form = { ...spec, overlay };
     this.titleInput = InputState.new({ placeholder: "輸入 Issue 標題…" });
@@ -622,9 +634,9 @@ export default class GitHub extends View {
       try {
         const url = (await gh(["issue", "create", "-R", f.repo, "--title", title, "--body", this.bodyInput.value().trim()])).trim().split("\n").pop();
         const number = Number(/\/issues\/(\d+)/.exec(url)?.[1]);
-        setShared("github.changed", { repo: f.repo, at: Date.now() });
+        setShared("git-remote.changed", { repo: f.repo, at: Date.now() });
         closeOverlay(f.overlay);
-        if (number) openOverlay({ mod: "github", kind: "dialog", width: 0.88, height: 0.92, props: { item: { kind: "issue", repo: f.repo, number, me: f.me, locals: f.locals } } });
+        if (number) openOverlay({ mod: "git-remote", kind: "dialog", width: 0.88, height: 0.92, props: { item: { kind: "issue", repo: f.repo, number, me: f.me, locals: f.locals } } });
       } catch (e) { f.error = String(e?.message ?? e); f.busy = false; cx.notify(); }
     });
   }

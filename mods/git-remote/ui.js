@@ -18,7 +18,7 @@ export function primer(t) {
   };
 }
 
-export const icon = (name) => `mods/github/icons/${name}.svg`;
+export const icon = (name) => `mods/git-remote/icons/${name}.svg`;
 export const glyph = (name, size, color) => svg(icon(name)).size(size).flex_none().text_color(color);
 export const spinner = (size, color) => svg("mods/workspace-chrome/spinner.svg").size(size).flex_none().text_color(color).spin(900);
 

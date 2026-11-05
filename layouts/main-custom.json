@@ -179,10 +179,10 @@
                               }
                             },
                             {
-                              "id": "github",
+                              "id": "git-remote",
                               "type": "block",
                               "content": {
-                                "mod": "github"
+                                "mod": "git-remote"
                               }
                             }
                           ],

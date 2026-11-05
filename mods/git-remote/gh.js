@@ -1,5 +1,6 @@
 import { trimLog } from "./log.js";
 import { exec, home, spaces } from "herdr";
+import { describeRemote, githubSlug } from "./platform.js";
 
 // Every GitHub call goes through gh: its auth, its host, its pagination.
 export async function gh(args, opts = {}) {
@@ -22,15 +23,13 @@ export async function account() {
   return { state: "ready", login: r.stdout.trim(), orgs: orgs.split("\n").map((s) => s.trim()).filter(Boolean) };
 }
 
-export function slugOf(remote) {
-  const m = /github\.com[:/]([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/.exec(String(remote).trim());
-  return m ? `${m[1]}/${m[2]}` : null;
-}
+// The `owner/repo` of a GitHub remote URL; null for any other platform.
+export const slugOf = (remote) => githubSlug(describeRemote(remote));
 
-// The GitHub repo of a folder, from its origin remote (no network).
-export async function repoOf(cwd, on) {
+// The platform and path of a folder's origin remote (no network): see platform.js.
+export async function remoteOf(cwd, on) {
   const r = await exec("git", ["remote", "get-url", "origin"], { cwd, on }).catch(() => null);
-  return r?.code === 0 ? slugOf(r.stdout) : null;
+  return r?.code === 0 ? describeRemote(r.stdout) : null;
 }
 
 // Local clones by repo: the usual project folders under home, plus the layout's own (`props.roots`),
@@ -49,7 +48,7 @@ export async function checkouts(extra = []) {
   const list = [...spaces()].sort((a, b) => Number((a.folder ?? "").includes("/.herdr/worktrees/")) - Number((b.folder ?? "").includes("/.herdr/worktrees/")));
   for (const s of list) {
     if (!s.folder || s.machine) continue;
-    const slug = await repoOf(s.folder, null);
+    const slug = githubSlug(await remoteOf(s.folder, null));
     if (slug && (!map[slug]?.space || !(s.folder ?? "").includes("/.herdr/worktrees/"))) map[slug] = { folder: s.folder, space: s.id };
   }
   return map;

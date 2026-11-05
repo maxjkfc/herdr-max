@@ -84,7 +84,7 @@ export async function openIssueWorktree({ issue, folder, space, argv, task }) {
 
 // The agent menu: a popup of this mod listing the installed agents, under the button that asked.
 export function pickAgent(task) {
-  openOverlay({ mod: "github", kind: "popup", width: 280, height: 340, at: under(280), props: { agentMenu: task } });
+  openOverlay({ mod: "git-remote", kind: "popup", width: 280, height: 340, at: under(280), props: { agentMenu: task } });
 }
 
 // Starts the agent in a new tab (or a new worktree space when `inWorktree` is on and `issue` is present).
@@ -174,7 +174,7 @@ export class AgentMenu {
 
 // Copy link / reference / number / brief: under its button, or at the pointer for a right-click.
 export function copyMenu(items, at = under(300)) {
-  openOverlay({ mod: "github", kind: "popup", width: 300, height: 14 + items.length * 48, at, props: { copyMenu: items } });
+  openOverlay({ mod: "git-remote", kind: "popup", width: 300, height: 14 + items.length * 48, at, props: { copyMenu: items } });
 }
 export function renderCopyMenu(items, overlay, t) {
   return v_flex().id("copy-menu").size_full().p(6).gap(1).bg(t.popover).text_color(t.foreground).text_size(12)

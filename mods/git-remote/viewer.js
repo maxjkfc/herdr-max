@@ -193,7 +193,7 @@ export class Viewer {
         if (sha) args.push("--match-head-commit", sha);
         await gh(args);
         notify({ title: `PR #${number} 已合併`, body: title, level: "success", timeout: 3000 });
-        setShared("github.changed", { repo, at: Date.now() });
+        setShared("git-remote.changed", { repo, at: Date.now() });
         if (this.key() === key) { this.load(cx); }
       } catch (e) {
         if (this.key() === key) this.mergeError = String(e?.message ?? e);
@@ -290,7 +290,7 @@ export class Viewer {
     cx.spawn(async (cx) => {
       try {
         await gh([this.kind, cmd, String(this.number), "-R", repo, ...args]);
-        setShared("github.changed", { repo, at: Date.now() });
+        setShared("git-remote.changed", { repo, at: Date.now() });
         after?.();
       } catch (e) { if (this.key() === key) this.error = String(e?.message ?? e); }
       finally { this.busy = null; if (this.key() === key) this.load(cx); else cx.notify(); }

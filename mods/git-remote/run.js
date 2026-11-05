@@ -33,7 +33,7 @@ export class RunView {
     if (this.busy) return;
     this.busy = failedOnly ? "Re-running failed jobs" : "Re-running all jobs";
     cx.spawn(async (cx) => {
-      try { await gh(["run", "rerun", String(this.run.databaseId), "-R", this.run.repo, ...(failedOnly ? ["--failed"] : [])]); setShared("github.changed", { repo: this.run.repo, at: Date.now() }); }
+      try { await gh(["run", "rerun", String(this.run.databaseId), "-R", this.run.repo, ...(failedOnly ? ["--failed"] : [])]); setShared("git-remote.changed", { repo: this.run.repo, at: Date.now() }); }
       catch (e) { this.error = String(e?.message ?? e); }
       finally { this.busy = null; this.load(cx); }
     });

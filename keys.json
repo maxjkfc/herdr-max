@@ -146,5 +146,11 @@
     "ctrl-p": "worktree-plus.up",
     "ctrl-j": "worktree-plus.down",
     "ctrl-k": "worktree-plus.up"
+  },
+  "mod:git-remote": {
+    "ctrl-n": "git-remote.down",
+    "ctrl-p": "git-remote.up",
+    "ctrl-j": "git-remote.down",
+    "ctrl-k": "git-remote.up"
   }
 }
