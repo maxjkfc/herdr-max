@@ -57,7 +57,7 @@ export default class Review extends View {
     this.rowList = VirtualListScrollHandle.new();
     this.sentAt = shared("review.sent")?.at;
     // Worktrees of this repo (to look at another one), uncommitted entries here, and the commit box.
-    this.worktrees = []; this.dirty = 0; this.message = ""; this.committing = false; this.wtItems = null; this.showMerged = false;
+    this.worktrees = []; this.dirty = 0; this.message = ""; this.committing = false; this.wtItems = null; this.showMerged = false; this.gen = 0;
     this.commitInput = InputState.new({ placeholder: "Commit 訊息" });
     this.commitInput.on("change", (_e, cx) => { this.message = this.commitInput.value(); cx.notify(); });
     this.commitInput.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
@@ -74,6 +74,7 @@ export default class Review extends View {
   refresh(cx, first = false) {
     if (!this.root) { this.error = "沒有指定專案資料夾"; this.loading = false; return; }
     this.loading = true; this.error = null; this.cache.clear();
+    const gen = ++this.gen;   // a refresh of a worktree we've since left must not land its results on the new one
     cx.spawn(async (cx) => {
       try {
         const top = await this.git(["rev-parse", "--show-toplevel"]);
@@ -82,6 +83,7 @@ export default class Review extends View {
           this.git(["rev-parse", "--abbrev-ref", "HEAD"]), this.git(["rev-parse", "--verify", "HEAD"]),
           this.git(["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"]),
         ]);
+        if (gen !== this.gen) return;
         this.hasHead = this.ok(head);
         let base = this.ok(up) ? up.stdout.trim() : null;
         for (const b of base ? [] : ["main", "master"]) if (this.ok(await this.git(["rev-parse", "--verify", "--quiet", b]))) { base = b; break; }
@@ -94,18 +96,20 @@ export default class Review extends View {
             ahead = this.ok(n) ? Number(n.stdout.trim()) || 0 : 0;
           }
         }
+        if (gen !== this.gen) return;
         this.info = { branch: branch.stdout.trim(), base, mergeBase, ahead };
         const [wt, st] = await Promise.all([
           this.git(["worktree", "list", "--porcelain"]),
           this.git(["status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all"]),
         ]);
+        if (gen !== this.gen) return;
         this.worktrees = this.ok(wt) ? parseWorktrees(wt.stdout) : [];
         this.dirty = this.ok(st) ? dirtyCount(st.stdout) : 0;
         // A branch that has left its base opens against it; the choice is remembered per repo.
         if (first) this.scope = remembered()[`${this.on ?? ""}:${this.root}`] ?? (ahead > 0 ? "branch" : "work");
-        await this.loadFiles(cx);
-      } catch (e) { this.error = String(e?.message ?? e); }
-      finally { this.loading = false; cx.notify(); }
+        await this.loadFiles(cx, gen);
+      } catch (e) { if (gen === this.gen) this.error = String(e?.message ?? e); }
+      finally { if (gen === this.gen) this.loading = false; cx.notify(); }
     });
   }
 
@@ -117,10 +121,11 @@ export default class Review extends View {
     return this.info.mergeBase;
   }
 
-  async loadFiles(cx) {
+  async loadFiles(cx, gen = this.gen) {
     this.note = null;
     if (this.scope === "branch" && !this.info.mergeBase) { this.note = "找不到 base 分支（origin/HEAD、main、master），改看未提交的變更"; this.scope = "work"; }
     this.ref = await this.refFor(this.scope);
+    if (gen !== this.gen) return;
     const [stat, untracked] = await Promise.all([
       this.git(["diff", this.ref, "--numstat", "-z", "--no-renames"]),
       this.git(["ls-files", "--others", "--exclude-standard", "-z"]),
@@ -132,6 +137,7 @@ export default class Review extends View {
       files.push({ path: p.join("\t"), add: a === "-" ? 0 : Number(a), del: d === "-" ? 0 : Number(d), binary: a === "-" });
     }
     for (const path of untracked.stdout.split("\0").filter(Boolean)) files.push({ path, add: 0, del: 0, binary: false, untracked: true });
+    if (gen !== this.gen) return;
     this.files = files.sort((x, y) => x.path.localeCompare(y.path));
     this.pick(Math.min(this.fileIdx, Math.max(0, this.files.length - 1)), cx);
   }
