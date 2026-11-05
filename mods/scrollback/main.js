@@ -6,6 +6,15 @@ const ROW_H = 21;
 const MAX_LINES = 2500;
 const MONO = "JetBrains Mono";
 
+// Nerd-font / powerline icon glyphs live in the Unicode Private Use Areas.
+// Our mod's font has no matching glyph for them, so they render as garbled
+// boxes. They're decorative chrome (status-bar icons, prompt separators),
+// not real content, so drop them instead of showing tofu.
+const PUA_RE = /[\u{E000}-\u{F8FF}\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]/gu;
+function stripIconGlyphs(text) {
+  return text.replace(PUA_RE, "");
+}
+
 function activeTarget() {
   const req = shared("scrollback.request");
   if (req) setShared("scrollback.request", null);
@@ -91,7 +100,7 @@ export default class Scrollback extends View {
       try {
         const res = await hc(["read", this.terminal, "--lines", String(MAX_LINES)]);
         if (res.code !== 0) throw new Error((res.stderr || res.stdout || "hc read failed").trim());
-        const raw = (res.stdout ?? "").replace(/\r\n/g, "\n").split("\n");
+        const raw = (res.stdout ?? "").replace(/\r\n/g, "\n").split("\n").map(stripIconGlyphs);
         while (raw.length > 1 && raw[raw.length - 1].trim() === "") raw.pop();
         this.lines = raw.length ? raw : ["（目前終端機沒有輸出內容）"];
         this.cursor = Math.max(0, this.lines.length - 1);

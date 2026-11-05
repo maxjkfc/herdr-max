@@ -152,5 +152,11 @@
     "ctrl-p": "git-remote.up",
     "ctrl-j": "git-remote.down",
     "ctrl-k": "git-remote.up"
+  },
+  "mod:git-graph": {
+    "ctrl-n": "git-graph.down",
+    "ctrl-p": "git-graph.up",
+    "ctrl-j": "git-graph.down",
+    "ctrl-k": "git-graph.up"
   }
 }
