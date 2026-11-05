@@ -73,7 +73,6 @@ export default class GitHub extends View {
     this.sharedTab = shared("git-remote.tab");
 
     cx.spawn(async (cx) => {
-      this.logins = await loginsOf();
       await this.syncUser(); cx.notify();
       this.refresh(cx);
       this.locals = await checkouts(this.roots); cx.notify();
@@ -129,13 +128,15 @@ export default class GitHub extends View {
     return best ? this.chosen[best] || null : null;
   }
 
-  // Act as the gh account the focused folder wants (the pick, else its .envrc, else gh's active one), and reload
-  // who that is when it changed. On another machine nothing changes: its gh is its own.
+  // Act as the gh account the focused folder wants: the pick, else its .envrc, else gh's active one, resolved to a
+  // name each time so the chip, the cache keys and the gh calls agree even when something flips gh's active account.
+  // Reload who that is when it changed. On another machine nothing changes: its gh is its own.
   async syncUser() {
     const { cwd, on } = this.where();
     if (cwd && !on) {
       if (!(cwd in this.declared)) this.declared[cwd] = await declaredUser(cwd);
-      const user = this.chosenUser(cwd) ?? this.declared[cwd];
+      this.logins = await loginsOf();
+      const user = this.chosenUser(cwd) ?? this.declared[cwd] ?? this.logins.find((l) => l.active)?.login ?? null;
       if ((shared("git-remote.user") ?? null) !== user) setShared("git-remote.user", user);
     }
     const want = shared("git-remote.user") ?? null;
@@ -644,12 +645,13 @@ export default class GitHub extends View {
     openOverlay({ mod: "git-remote", kind: "popup", width: 340, height: 440, at, props: { picker: { space: this.where().space, repo: this.spaceRepos[this.where().space] ?? null, pin: this.pin(), owners: this.owners() } } });
   }
   initPicker(spec, overlay, cx) {
-    this.picker = { ...spec, overlay, repos: remembered("d:picker", null), q: "" };
+    const cache = `d:picker:${shared("git-remote.user") ?? ""}`;
+    this.picker = { ...spec, overlay, repos: remembered(cache, null), q: "" };
     this.pickInput = InputState.new({ placeholder: "搜尋 Repo…" });
     this.pickInput.on("change", (_e, cx) => { this.picker.q = this.pickInput.value(); cx.notify(); });
     this.locals = {};
     cx.spawn(async (cx) => {
-      try { const got = await load.repos({ owners: spec.owners }); this.picker.repos = got; keep("d:picker", got); } catch (e) { this.picker.error = String(e?.message ?? e); }
+      try { const got = await load.repos({ owners: spec.owners }); this.picker.repos = got; keep(cache, got); } catch (e) { this.picker.error = String(e?.message ?? e); }
       cx.notify();
     });
   }
