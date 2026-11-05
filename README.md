@@ -2,7 +2,7 @@
 
 A customized [Herdr](https://herdr.dev) desktop layout (`main-custom`) and mod suite designed for multi-repo workspaces, issue-driven Git worktrees, TUI-style `Ctrl+A` prefix navigation, multi-account AI quota tracking, and lightweight system telemetry.
 
-![herdr-max preview](preview.svg)
+![herdr-max preview](preview.png)
 
 ---
 

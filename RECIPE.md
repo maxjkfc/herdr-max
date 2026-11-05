@@ -2,7 +2,7 @@
 
 A developer-focused Herdr desktop layout (`layouts/main-custom.json`) and modular extensions (`spaces-plus`, `worktree-plus`, `status-quota`, `workspace-status-plus`, `tmux-prefix`, `picker-copy`, `tabs-plus`, `git-hub`, `git-graph`, `git-remote`) that combine Spaces and Git Worktrees into a single tree with live agent & GitHub Issue badges, bring Herdr TUI's `Ctrl+A` prefix workflow to the desktop app, track multi-account Claude/Codex/Gemini quotas in the bottom-left sidebar, unify `Changes | Graph | Remote` into a single right-hand **Git** panel (with PR diff/merge and 1-click Issue-to-Worktree), and display lightweight macOS CPU/RAM/SSD stats in the bottom bar.
 
-![herdr-max](preview.svg)
+![herdr-max](preview.png)
 
 ## What you see
 
