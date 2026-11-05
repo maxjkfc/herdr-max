@@ -175,13 +175,13 @@ export class CommitDialog {
       .child(div().text_size(12.5).text_color(t.dim)
         .child(`${commit.author} · ${fullDate(commit.time)}${commit.parents.length > 1 ? ` · merge of ${commit.parents.map((p) => p.slice(0, 7)).join(" + ")}` : commit.parents.length === 0 ? " · root commit" : ` · parent ${commit.parents[0].slice(0, 7)}`}`));
 
-    const info = v_flex().id("cd-info").flex_none().max_h(220).overflow_y_scrollbar().px(14).py(10).gap(6).border_b(1).border_color(t.border)
+    // Left to right: the commit's message (its own full-height column, scrolls), the changed files as a tree, the file's diff.
+    const info = v_flex().id("cd-info").w(340).flex_none().h_full().min_h(0).overflow_y_scrollbar().px(16).py(12).gap(8).border_r(1).border_color(t.border)
       .child(div().text_size(11).font_semibold().text_color(t.muted).child("說明"))
-      .child(div().text_size(13).text_color(this.body ? t.foreground : t.dim).child(this.body || (this.loading ? "載入中…" : "（沒有內文）")))
+      .child(div().text_size(13.5).text_color(this.body ? t.foreground : t.dim).child(this.body || (this.loading ? "載入中…" : "（沒有內文）")))
       .child(div().text_size(11).text_color(t.dim).font_family(MONO).child(commit.hash));
 
-    const filesPanel = v_flex().w(320).flex_none().h_full().border_r(1).border_color(t.border).bg(t.surface)
-      .child(info)
+    const filesPanel = v_flex().w(290).flex_none().h_full().border_r(1).border_color(t.border).bg(t.surface)
       .child(h_flex().flex_none().px(12).py(8).gap(8).items_center().border_b(1).border_color(t.border).text_size(12).text_color(t.muted)
         .child(div().font_semibold().text_color(t.foreground).child(`異動檔案 (${files.length})`))
         .child(div().flex_1())
@@ -222,6 +222,6 @@ export class CommitDialog {
     return v_flex().id("commit-dialog").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13.5)
       .track_focus(this.handle).on_key_down((e, cx) => this.onKey(e, cx))
       .child(header)
-      .child(h_flex().flex_1().min_h(0).child(filesPanel).child(diffPane));
+      .child(h_flex().flex_1().min_h(0).child(info).child(filesPanel).child(diffPane));
   }
 }
