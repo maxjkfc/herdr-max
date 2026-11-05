@@ -2,7 +2,8 @@ import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
 import { spaces, panes, agents, focused, run, layout, theme, openOverlay, closeOverlay, notify, props, shared, setShared, nextCommand } from "herdr";
 import { primer, glyph, spinner, ago, openUrl, issueState, prState, runState, checksOf, glyphOf, labelChip, button, blankslate, skeleton } from "./ui.js";
-import { gh, ghJson, account, repoOf, checkouts, load, localState, ROOTS } from "./gh.js";
+import { gh, ghJson, account, declaredUser, loginsOf, remoteOf, checkouts, load, localState, ROOTS } from "./gh.js";
+import { githubSlug } from "./platform.js";
 import { issueBrief, prBrief } from "./brief.js";
 import { Viewer } from "./viewer.js";
 import { RunView } from "./run.js";
@@ -31,9 +32,9 @@ function hidden() {
   const root = layout(), panel = find(root, "panel"), body = find(root, "panel-body"), gitBody = find(root, "git-body");
   if (!panel) return false;
   if (panel.hidden) return true;
-  if (gitBody) return body?.active !== "git" || gitBody.active !== "github";
-  if (!body?.children?.some((c) => c.content?.mod === "github")) return false;
-  return find(body, body.active)?.content?.mod !== "github";
+  if (gitBody) return body?.active !== "git" || gitBody.active !== "git-remote";
+  if (!body?.children?.some((c) => c.content?.mod === "git-remote")) return false;
+  return find(body, body.active)?.content?.mod !== "git-remote";
 }
 function location(last) {
   const space = spaces().find((s) => s.active), f = focused();
@@ -50,13 +51,16 @@ export default class GitHub extends View {
     if (pr.agentMenu) { this.agentMenu = new AgentMenu(pr.agentMenu, pr.overlay, cx); return; }
     if (pr.copyMenu) { this.copying = { items: pr.copyMenu, overlay: pr.overlay }; return; }
     if (pr.picker) { this.initPicker(pr.picker, pr.overlay, cx); return; }
+    if (pr.accountMenu) { this.accountMenu = { ...pr.accountMenu, overlay: pr.overlay }; return; }
     if (pr.create) { this.initCreate(pr.create, pr.overlay, cx); return; }
 
     this.handle = cx.focus_handle();
     this.fixed = pr.repo ?? null;
     this.roots = Array.isArray(pr.roots) ? pr.roots : [];
-    this.repos = remembered("repos"); this.pins = remembered("pins"); this.spaceRepos = remembered("spaces");
-    this.tab = shared("github.tab") ?? "prs";
+    this.remotes = remembered("remotes"); this.pins = remembered("pins"); this.spaceRepos = remembered("spaces");
+    // gh accounts: the ones gh knows, what a folder's .envrc declares, and the user's per-folder pick ("" = auto).
+    this.logins = []; this.declared = {}; this.chosen = remembered("accounts"); this.accountUser = undefined;
+    this.tab = shared("git-remote.tab") ?? "prs";
     this.f = remembered("filters", null) ?? { prs: { state: "open", mine: false }, issues: { state: "open", mine: false }, actions: { failing: false, branch: false } };
     this.limit = PAGE; this.data = {}; this.locals = {}; this.query = "";
     this.selectedIdx = 0; this.inlineMergeNum = null; this.mergingNum = null;
@@ -64,13 +68,13 @@ export default class GitHub extends View {
     this.input.on("change", (_e, cx) => { this.query = this.input.value(); this.limit = PAGE; this.selectedIdx = 0; cx.notify(); });
     this.input.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
     this.input.on("blur", (_e, cx) => { this.typing = false; cx.notify(); });
-    this.changedAt = shared("github.changed")?.at; this.pickedAt = shared("github.pick")?.at;
+    this.changedAt = shared("git-remote.changed")?.at; this.pickedAt = shared("git-remote.pick")?.at; this.acctAt = shared("git-remote.pick-account")?.at;
     this.focusAt = shared("git.focus")?.at;
-    this.sharedTab = shared("github.tab");
+    this.sharedTab = shared("git-remote.tab");
 
     cx.spawn(async (cx) => {
-      this.account = await account(); cx.notify();
-      if (this.account.state === "ready") this.refresh(cx);
+      await this.syncUser(); cx.notify();
+      this.refresh(cx);
       this.locals = await checkouts(this.roots); cx.notify();
     });
     cx.timer.every(SYNC, (cx) => { if (!hidden()) this.refresh(cx, true); });
@@ -113,23 +117,70 @@ export default class GitHub extends View {
     if (tab === "actions") f.branch = f.branch ? this.locals[this.repo()]?.branch ?? null : null;
     return f;
   }
-  key(tab = this.shownTab(), f = this.filters(tab)) { return `${this.scopeKey()}|${tab}|${JSON.stringify(f)}`; }
+  key(tab = this.shownTab(), f = this.filters(tab)) { return `${shared("git-remote.user") ?? ""}|${this.scopeKey()}|${tab}|${JSON.stringify(f)}`; }
   entry(key = this.key()) { return (this.data[key] ??= { items: remembered(`d:${key}`, null), at: 0 }); }
   items() { return this.entry().items; }
 
+  // The picked account for a folder: the longest picked folder above it; null when none, or the pick is "auto".
+  chosenUser(cwd) {
+    let best = null;
+    for (const dir of Object.keys(this.chosen)) if ((cwd === dir || cwd.startsWith(`${dir}/`)) && (!best || dir.length > best.length)) best = dir;
+    return best ? this.chosen[best] || null : null;
+  }
+
+  // Act as the gh account the focused folder wants: the pick, else its .envrc, else gh's active one, resolved to a
+  // name each time so the chip, the cache keys and the gh calls agree even when something flips gh's active account.
+  // Reload who that is when it changed. On another machine nothing changes: its gh is its own.
+  async syncUser() {
+    const { cwd, on } = this.where();
+    if (cwd && !on) {
+      if (!(cwd in this.declared)) this.declared[cwd] = await declaredUser(cwd);
+      this.logins = await loginsOf();
+      const user = this.chosenUser(cwd) ?? this.declared[cwd] ?? this.logins.find((l) => l.active)?.login ?? null;
+      if ((shared("git-remote.user") ?? null) !== user) setShared("git-remote.user", user);
+    }
+    const want = shared("git-remote.user") ?? null;
+    if (!this.account || this.accountUser !== want) { this.accountUser = want; this.account = await account(); }
+  }
+
+  // Remember the account chosen for a folder ("" = auto) and reload as it.
+  chooseUser(dir, user, cx) {
+    this.chosen[dir] = user;
+    keep("accounts", this.chosen);
+    cx.spawn(async (cx) => { await this.syncUser(); this.refresh(cx); cx.notify(); });
+  }
+
+  // The account dropdown: a popup listing "auto" and every logged-in account, the current pick ticked.
+  openAccountMenu() {
+    const { cwd, space } = this.where();
+    if (!cwd) return;
+    const dir = spaces().find((s) => s.id === space)?.folder ?? cwd;
+    openOverlay({ mod: "git-remote", kind: "popup", width: 280, height: 64 + (this.logins.length + 1) * 46, at: "pointer",
+      props: { accountMenu: { dir, picked: this.chosenUser(cwd) ?? "", declared: this.declared[cwd] ?? null, logins: this.logins } } });
+  }
+
   async follow() {
+    await this.syncUser();
     const { cwd, on, space } = this.where();
     if (!cwd || on) return;
     const id = JSON.stringify([cwd, on]);
-    if (!(id in this.repos)) { this.repos[id] = await repoOf(cwd, on); keep("repos", this.repos); }
-    const found = this.repos[id] ?? null;
+    if (!(id in this.remotes)) { this.remotes[id] = await remoteOf(cwd, on); keep("remotes", this.remotes); }
+    const found = githubSlug(this.remotes[id]);
     if ((this.spaceRepos[space] ?? null) !== found) { this.spaceRepos[space] = found; keep("spaces", this.spaceRepos); }
   }
 
+  // The platform of the focused folder's origin when it is not one this panel can show (GitLab, Bitbucket, …).
+  foreign() {
+    const { cwd, on } = this.where();
+    const r = cwd && !on ? this.remotes[JSON.stringify([cwd, on])] : null;
+    return r && !githubSlug(r) ? r : null;
+  }
+
   refresh(cx, quiet = false) {
-    if (this.account?.state !== "ready") return;
     cx.spawn(async (cx) => {
       await this.follow();
+      // The origin's platform is shown even when gh can't serve it (not installed, signed out).
+      if (this.account?.state !== "ready") return cx.notify();
       const scope = this.scope();
       if (!scope) return cx.notify();
       const tab = this.shownTab(), key = this.key(tab), e = this.entry(key);
@@ -152,7 +203,7 @@ export default class GitHub extends View {
 
   setTab(tab, cx) {
     this.tab = tab; this.limit = PAGE; this.selectedIdx = 0; this.inlineMergeNum = null;
-    setShared("github.tab", tab); setShared("git.subtab", tab);
+    setShared("git-remote.tab", tab); setShared("git.subtab", tab);
     this.refresh(cx); cx.notify();
   }
   setFilter(tab, patch, cx) {
@@ -169,7 +220,7 @@ export default class GitHub extends View {
   localFor(repo) { const l = this.locals[repo]; return l ? { [repo]: { folder: l.folder, space: l.space ?? null } } : {}; }
   open(item, kind) {
     openOverlay({
-      mod: "github",
+      mod: "git-remote",
       kind: "dialog",
       width: 0.88,
       height: 0.92,
@@ -178,7 +229,7 @@ export default class GitHub extends View {
   }
   openRun(r) {
     const l = this.locals[r.repo];
-    openOverlay({ mod: "github", kind: "dialog", width: 0.8, height: 0.88, props: { run: { run: r, local: l ? { folder: l.folder, space: l.space ?? null } : null } } });
+    openOverlay({ mod: "git-remote", kind: "dialog", width: 0.8, height: 0.88, props: { run: { run: r, local: l ? { folder: l.folder, space: l.space ?? null } : null } } });
   }
   async brief(item, kind) {
     const fields = kind === "pr"
@@ -406,6 +457,17 @@ export default class GitHub extends View {
         .when(tab === "issues" && Boolean(repo) && !all, (x) => x.child(button("new-issue", "+ 新 Issue", t, () => this.create(), { small: true, color: p.open })))
         .child(e.loading ? div().px(6).child(spinner(13, t.muted)) : button("refresh", "", t, (_e, cx) => this.refresh(cx), { icon: "refresh", small: true, invisible: true, tooltip: "重新整理" })))
       .child(h_flex().px(10).pb(8).gap(6).items_center()
+        .when(this.logins.length > 1, (x) => {
+          const cwd = this.where().cwd, picked = cwd ? this.chosenUser(cwd) : null;
+          const how = picked ? "手動指定" : cwd && this.declared[cwd] ? "由 .envrc 指定" : "gh 目前帳號";
+          return x.child(h_flex().id("acct").flex_none().max_w(120).h(30).px(8).gap(5).items_center().rounded(6).border_1().border_color(t.border).bg(t.background)
+            .text_size(12).text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover))
+            .tooltip(`GitHub 帳號：${this.account?.login ?? "?"}（${how}）\n點擊選擇帳號`)
+            .on_click(() => this.openAccountMenu())
+            .child(glyph("user", 12, t.muted))
+            .child(div().min_w(0).truncate().child(this.account?.login ?? "?"))
+            .child(glyph("chevron-down", 11, t.dim)));
+        })
         .child(h_flex().id("filter").flex_1().min_w(0).h(30).px(9).gap(6).items_center().rounded(6).bg(t.background).border_1().border_color(this.typing ? t.accent : t.border).cursor_text()
           .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
           .child(glyph("search", 13, t.muted)).child(Input.new(this.input).flex_1().h_full().text_size(13).text_color(t.foreground)))
@@ -513,7 +575,7 @@ export default class GitHub extends View {
   }
 
   shell(t) {
-    return v_flex().id("github").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
+    return v_flex().id("git-remote").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
       .text_color(t.foreground).text_size(14).track_focus(this.handle)
       .on_key_down((e, cx) => this.onKey(e, cx));
   }
@@ -526,16 +588,17 @@ export default class GitHub extends View {
     if (this.agentMenu) return this.agentMenu.render(cx, t);
     if (this.copying) return renderCopyMenu(this.copying.items, this.copying.overlay, t);
     if (this.picker) return this.renderPicker(t);
+    if (this.accountMenu) return this.renderAccountMenu(t);
     if (this.form) return this.renderCreate(t);
 
-    const extTab = shared("github.tab");
+    const extTab = shared("git-remote.tab");
     if (extTab && TABS[extTab] && extTab !== this.tab) {
       this.tab = extTab;
       this.selectedIdx = 0;
       this.refresh(cx, true);
     }
     const focusReq = shared("git.focus");
-    if (focusReq?.at && focusReq.at !== this.focusAt && focusReq.target === "github") {
+    if (focusReq?.at && focusReq.at !== this.focusAt && focusReq.target === "git-remote") {
       this.focusAt = focusReq.at;
       this.typing = false;
       cx.timer.after(40, () => this.handle.focus());
@@ -548,17 +611,24 @@ export default class GitHub extends View {
     }
     if ((this.away && !away) || (!away && ctx !== this.ctx)) { this.ctx = ctx; this.refresh(cx, true); }
     this.away = away;
-    const changed = shared("github.changed");
+    const changed = shared("git-remote.changed");
     if (changed?.at && changed.at !== this.changedAt) { this.changedAt = changed.at; this.refresh(cx, true); }
-    const picked = shared("github.pick");
+    const picked = shared("git-remote.pick");
     if (picked?.at && picked.at !== this.pickedAt) { this.pickedAt = picked.at; this.setPin(picked.space, picked.value, cx); }
+    const acct = shared("git-remote.pick-account");
+    if (acct?.at && acct.at !== this.acctAt) { this.acctAt = acct.at; this.chooseUser(acct.dir, acct.user, cx); }
 
+    const other = this.foreign();
+    if (other && !this.scope()) return this.shell(t).child(blankslate(t, { icon: "repo", title: `偵測到 ${other.label}，目前僅支援 GitHub`,
+      body: `origin 指向 ${other.host}/${other.slug}。這個面板的 PR / Issue / CI 透過 GitHub CLI (gh) 取得，${other.label} 的內容尚無法顯示；Changes 與 Graph 分頁不受影響。`,
+      actions: [button("pick", "選擇 GitHub Repo", t, () => this.openPicker(), { icon: "repos", primary: true })] }));
     const a = this.account;
     if (!a) return this.shell(t).child(blankslate(t, { icon: "spin", title: "正在連線至 GitHub…", body: "讀取本機 gh 登入狀態中。" }));
     if (a.state === "missing") return this.shell(t).child(blankslate(t, { icon: "github", title: "找不到 GitHub CLI (gh)", body: "請先安裝 gh 並登入帳號。", actions: [button("install", "前往安裝 gh", t, () => openUrl("https://cli.github.com"), { icon: "external", primary: true })] }));
     if (a.state !== "ready") return this.shell(t).child(blankslate(t, { icon: "key", title: a.state === "logged_out" ? "尚未登入 GitHub CLI" : "無法連線至 GitHub", body: a.state === "logged_out" ? "請在終端機執行 gh auth login 完成驗證。" : a.detail, code: a.state === "logged_out" ? "gh auth login" : null,
       actions: [button("login", "開新 Tab 登入", t, () => run("terminal.open", { argv: ["sh", "-c", 'gh auth login; exec "${SHELL:-sh}"'], place: "tab" }), { icon: "terminal" }),
-        button("recheck", "重新檢查", t, (_e, cx) => { this.account = null; cx.spawn(async (cx) => { this.account = await account(); this.refresh(cx); cx.notify(); }); cx.notify(); }, { icon: "refresh" })] }));
+        button("recheck", "重新檢查", t, (_e, cx) => { this.account = null; cx.spawn(async (cx) => { this.account = await account(); this.refresh(cx); cx.notify(); }); cx.notify(); }, { icon: "refresh" }),
+        ...(this.logins.length > 1 ? [button("switch-account", "選擇帳號", t, () => this.openAccountMenu(), { icon: "user" })] : [])] }));
     if (!this.scope()) return this.shell(t).child(blankslate(t, { icon: "repo", title: "此目錄沒有綁定 GitHub Repo", body: "將游標移至含 GitHub remote 的專案終端機，或手動選擇一個專案。",
       actions: [button("pick", "選擇 Repo", t, () => this.openPicker(), { icon: "repos", primary: true }),
         button("all-repos", "檢視所有 Repo", t, (_e, cx) => this.setPin(this.where().space, "all", cx), { icon: "repos" })] }));
@@ -572,19 +642,35 @@ export default class GitHub extends View {
 
   // ---- Repository picker popup ----
   openPicker(at = "pointer") {
-    openOverlay({ mod: "github", kind: "popup", width: 340, height: 440, at, props: { picker: { space: this.where().space, repo: this.spaceRepos[this.where().space] ?? null, pin: this.pin(), owners: this.owners() } } });
+    openOverlay({ mod: "git-remote", kind: "popup", width: 340, height: 440, at, props: { picker: { space: this.where().space, repo: this.spaceRepos[this.where().space] ?? null, pin: this.pin(), owners: this.owners() } } });
   }
   initPicker(spec, overlay, cx) {
-    this.picker = { ...spec, overlay, repos: remembered("d:picker", null), q: "" };
+    const cache = `d:picker:${shared("git-remote.user") ?? ""}`;
+    this.picker = { ...spec, overlay, repos: remembered(cache, null), q: "" };
     this.pickInput = InputState.new({ placeholder: "搜尋 Repo…" });
     this.pickInput.on("change", (_e, cx) => { this.picker.q = this.pickInput.value(); cx.notify(); });
     this.locals = {};
     cx.spawn(async (cx) => {
-      try { const got = await load.repos({ owners: spec.owners }); this.picker.repos = got; keep("d:picker", got); } catch (e) { this.picker.error = String(e?.message ?? e); }
+      try { const got = await load.repos({ owners: spec.owners }); this.picker.repos = got; keep(cache, got); } catch (e) { this.picker.error = String(e?.message ?? e); }
       cx.notify();
     });
   }
-  pick(value) { setShared("github.pick", { space: this.picker.space, value, at: Date.now() }); closeOverlay(this.picker.overlay); }
+  pick(value) { setShared("git-remote.pick", { space: this.picker.space, value, at: Date.now() }); closeOverlay(this.picker.overlay); }
+  renderAccountMenu(t) {
+    const p = primer(t), m = this.accountMenu, active = m.logins.find((l) => l.active)?.login;
+    const row = (id, title, note, on, user) => h_flex().id(id).h(46).flex_none().px(10).gap(10).items_center().rounded(6).cursor_pointer().hover((x) => x.bg(t.hover))
+      .on_click(() => { setShared("git-remote.pick-account", { dir: m.dir, user, at: Date.now() }); closeOverlay(m.overlay); })
+      .child(div().w(14).flex_none().child(on ? glyph("check", 14, p.link) : div()))
+      .child(glyph("user", 15, t.muted))
+      .child(v_flex().flex_1().min_w(0).child(div().text_size(13).truncate().font_medium().child(title)).child(div().text_size(11).text_color(t.muted).truncate().child(note)));
+    return v_flex().id("account-menu").size_full().bg(t.popover).text_color(t.foreground)
+      .child(div().px(12).pt(10).pb(6).text_size(12.5).font_semibold().child("選擇 GitHub 帳號"))
+      .child(v_flex().px(4).pb(6)
+        .child(row("acct-auto", "自動", m.declared ? `依 .envrc：${m.declared}` : `gh 目前帳號：${active ?? "?"}`, m.picked === "", ""))
+        .child(div().mx(10).my(4).h(1).bg(t.border))
+        .children(m.logins.map((l) => row(`acct-${l.login}`, l.login, [l.active && "gh 目前帳號", m.declared === l.login && ".envrc 指定"].filter(Boolean).join(" · ") || "已登入", m.picked === l.login, l.login))));
+  }
+
   renderPicker(t) {
     const p = primer(t), s = this.picker, q = s.q.trim().toLowerCase();
     const row = (id, g, title, note, on, onClick) => h_flex().id(id).h(40).flex_none().px(10).gap(10).items_center().rounded(6).cursor_pointer().hover((x) => x.bg(t.hover)).on_click(onClick)
@@ -606,7 +692,7 @@ export default class GitHub extends View {
   }
 
   // ---- New Issue dialog ----
-  create() { openOverlay({ mod: "github", kind: "dialog", modal: true, width: 640, height: 480, props: { create: { repo: this.repo(), me: this.account?.login, locals: this.localFor(this.repo()) } } }); }
+  create() { openOverlay({ mod: "git-remote", kind: "dialog", modal: true, width: 640, height: 480, props: { create: { repo: this.repo(), me: this.account?.login, locals: this.localFor(this.repo()) } } }); }
   initCreate(spec, overlay, cx) {
     this.form = { ...spec, overlay };
     this.titleInput = InputState.new({ placeholder: "輸入 Issue 標題…" });
@@ -622,9 +708,9 @@ export default class GitHub extends View {
       try {
         const url = (await gh(["issue", "create", "-R", f.repo, "--title", title, "--body", this.bodyInput.value().trim()])).trim().split("\n").pop();
         const number = Number(/\/issues\/(\d+)/.exec(url)?.[1]);
-        setShared("github.changed", { repo: f.repo, at: Date.now() });
+        setShared("git-remote.changed", { repo: f.repo, at: Date.now() });
         closeOverlay(f.overlay);
-        if (number) openOverlay({ mod: "github", kind: "dialog", width: 0.88, height: 0.92, props: { item: { kind: "issue", repo: f.repo, number, me: f.me, locals: f.locals } } });
+        if (number) openOverlay({ mod: "git-remote", kind: "dialog", width: 0.88, height: 0.92, props: { item: { kind: "issue", repo: f.repo, number, me: f.me, locals: f.locals } } });
       } catch (e) { f.error = String(e?.message ?? e); f.busy = false; cx.notify(); }
     });
   }

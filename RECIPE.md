@@ -1,6 +1,6 @@
 # herdr-max
 
-A developer-focused Herdr desktop layout (`layouts/main-custom.json`) and modular extensions (`spaces-plus`, `worktree-plus`, `status-quota`, `workspace-status-plus`, `tmux-prefix`, `picker-copy`, `tabs-plus`, `git-hub`, `git-graph`, `github`) that combine Spaces and Git Worktrees into a single tree with live agent & GitHub Issue badges, bring Herdr TUI's `Ctrl+A` prefix workflow to the desktop app, track multi-account Claude/Codex/Gemini quotas in the bottom-left sidebar, unify `Changes | Graph | Remote` into a single right-hand **Git** panel (with PR diff/merge and 1-click Issue-to-Worktree), and display lightweight macOS CPU/RAM/SSD stats in the bottom bar.
+A developer-focused Herdr desktop layout (`layouts/main-custom.json`) and modular extensions (`spaces-plus`, `worktree-plus`, `status-quota`, `workspace-status-plus`, `tmux-prefix`, `picker-copy`, `tabs-plus`, `git-hub`, `git-graph`, `git-remote`) that combine Spaces and Git Worktrees into a single tree with live agent & GitHub Issue badges, bring Herdr TUI's `Ctrl+A` prefix workflow to the desktop app, track multi-account Claude/Codex/Gemini quotas in the bottom-left sidebar, unify `Changes | Graph | Remote` into a single right-hand **Git** panel (with PR diff/merge and 1-click Issue-to-Worktree), and display lightweight macOS CPU/RAM/SSD stats in the bottom bar.
 
 ![herdr-max](preview.svg)
 
@@ -42,9 +42,9 @@ A developer-focused Herdr desktop layout (`layouts/main-custom.json`) and modula
   - `mods/git-graph/main.js` + `graph.js` (`mod.json`)
   - `mods/tabs-plus/main.js` + `graph.svg` (`mod.json`)
   - `mods/git-hub/main.js` (`mod.json`)
-  - `mods/github/` (`main.js`, `viewer.js`, `actions.js`, `gh.js`, `ui.js`, `brief.js`, `run.js`, `timeline.js`, `media.js`, `log.js`, `mod.json`)
+  - `mods/git-remote/` (`main.js`, `viewer.js`, `actions.js`, `gh.js`, `platform.js`, `ui.js`, `brief.js`, `run.js`, `timeline.js`, `media.js`, `log.js`, `mod.json`)
   - `mods/scrollback/main.js` (`mod.json`)
-- **Keys**: `keys.json` (`global`, `terminal`, `mod:tmux-prefix`, `mod:picker-copy`, `mod:worktree-plus`, `mod:github`, `mod:git-graph`, `mod:scrollback`)
+- **Keys**: `keys.json` (`global`, `terminal`, `mod:tmux-prefix`, `mod:picker-copy`, `mod:worktree-plus`, `mod:git-remote`, `mod:git-graph`, `mod:scrollback`)
 
 ## Watch out
 
@@ -54,5 +54,5 @@ A developer-focused Herdr desktop layout (`layouts/main-custom.json`) and modula
 
 ## Done when
 
-- `herdr-app check` passes on `mods/spaces-plus`, `mods/worktree-plus`, `mods/status-quota`, `mods/workspace-status-plus`, `mods/tmux-prefix`, `mods/picker-copy`, `mods/git-graph`, `mods/tabs-plus`, `mods/git-hub`, `mods/github`, and `mods/scrollback`.
+- `herdr-app check` passes on `mods/spaces-plus`, `mods/worktree-plus`, `mods/status-quota`, `mods/workspace-status-plus`, `mods/tmux-prefix`, `mods/picker-copy`, `mods/git-graph`, `mods/tabs-plus`, `mods/git-hub`, `mods/git-remote`, and `mods/scrollback`.
 - `herdr-app status` reports `"layout": "main-custom"` and `"errors": []`.

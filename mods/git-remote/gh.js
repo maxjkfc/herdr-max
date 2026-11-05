@@ -1,9 +1,20 @@
 import { trimLog } from "./log.js";
-import { exec, home, spaces } from "herdr";
+import { exec, home, shared, spaces } from "herdr";
+import { describeRemote, githubSlug } from "./platform.js";
+
+// The gh account the panel acts as: `shared("git-remote.user")`, set by the panel for the focused folder
+// (shared state so the PR dialog, a separate view, follows it). Null = gh's own active account. The token is
+// read inside the shell and put in GH_TOKEN there, never in an argument list; an account gh doesn't know fails
+// loudly instead of quietly falling back to the active one. Not applied on another machine (`on`): its gh is its own.
+const AS_USER = 'T=$(gh auth token --user "$0") || { echo "gh has no logged-in account $0" >&2; exit 3; }; GH_TOKEN=$T exec gh "$@"';
+const runGh = (args, opts = {}) => {
+  const user = opts.on ? null : shared("git-remote.user");
+  return user ? exec("sh", ["-c", AS_USER, user, ...args], opts) : exec("gh", args, opts);
+};
 
 // Every GitHub call goes through gh: its auth, its host, its pagination.
 export async function gh(args, opts = {}) {
-  const r = await exec("gh", args, opts).catch((e) => ({ code: 127, stdout: "", stderr: String(e?.message ?? e) }));
+  const r = await runGh(args, opts).catch((e) => ({ code: 127, stdout: "", stderr: String(e?.message ?? e) }));
   if (r.code !== 0) {
     const err = new Error((r.stderr || r.stdout || "gh failed").trim().split("\n").slice(-3).join(" ").slice(0, 300));
     err.code = r.code;
@@ -15,22 +26,34 @@ export const ghJson = async (args, opts) => JSON.parse(await gh(args, opts) || "
 
 // What stops the panel before any repository: gh missing, signed out, or fine.
 export async function account() {
-  const r = await exec("gh", ["api", "user", "--jq", ".login"]).catch(() => null);
+  const r = await runGh(["api", "user", "--jq", ".login"]).catch(() => null);
   if (!r) return { state: "missing" };
   if (r.code !== 0) return { state: /401|auth|log ?in|token/i.test(r.stderr) ? "logged_out" : "error", detail: r.stderr.trim() };
   const orgs = await gh(["api", "user/orgs", "--jq", ".[].login"]).catch(() => "");
   return { state: "ready", login: r.stdout.trim(), orgs: orgs.split("\n").map((s) => s.trim()).filter(Boolean) };
 }
 
-export function slugOf(remote) {
-  const m = /github\.com[:/]([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/.exec(String(remote).trim());
-  return m ? `${m[1]}/${m[2]}` : null;
+// The accounts gh is logged in to on github.com: [{ login, active }].
+export async function loginsOf() {
+  const r = await exec("gh", ["auth", "status", "--json", "hosts", "--jq", '.hosts["github.com"] // [] | map({login, active})']).catch(() => null);
+  try { return r?.code === 0 ? JSON.parse(r.stdout) : []; } catch { return []; }
 }
 
-// The GitHub repo of a folder, from its origin remote (no network).
-export async function repoOf(cwd, on) {
+// The account a folder declares for itself: the nearest .envrc (this folder or above) that sets GH_TOKEN from
+// `gh auth token --user <name>`, the convention direnv users already have. Null when none does.
+export async function declaredUser(folder) {
+  const script = 'd=$1; while [ -n "$d" ] && [ "$d" != / ]; do f="$d/.envrc"; if [ -f "$f" ]; then u=$(sed -n \'s/.*gh auth token --user[ =]\\([A-Za-z0-9-]*\\).*/\\1/p\' "$f" | head -1); [ -n "$u" ] && { echo "$u"; exit 0; }; fi; d=$(dirname "$d"); done';
+  const r = await exec("sh", ["-c", script, "sh", folder]).catch(() => null);
+  return r?.code === 0 && r.stdout.trim() ? r.stdout.trim() : null;
+}
+
+// The `owner/repo` of a GitHub remote URL; null for any other platform.
+export const slugOf = (remote) => githubSlug(describeRemote(remote));
+
+// The platform and path of a folder's origin remote (no network): see platform.js.
+export async function remoteOf(cwd, on) {
   const r = await exec("git", ["remote", "get-url", "origin"], { cwd, on }).catch(() => null);
-  return r?.code === 0 ? slugOf(r.stdout) : null;
+  return r?.code === 0 ? describeRemote(r.stdout) : null;
 }
 
 // Local clones by repo: the usual project folders under home, plus the layout's own (`props.roots`),
@@ -49,7 +72,7 @@ export async function checkouts(extra = []) {
   const list = [...spaces()].sort((a, b) => Number((a.folder ?? "").includes("/.herdr/worktrees/")) - Number((b.folder ?? "").includes("/.herdr/worktrees/")));
   for (const s of list) {
     if (!s.folder || s.machine) continue;
-    const slug = await repoOf(s.folder, null);
+    const slug = githubSlug(await remoteOf(s.folder, null));
     if (slug && (!map[slug]?.space || !(s.folder ?? "").includes("/.herdr/worktrees/"))) map[slug] = { folder: s.folder, space: s.id };
   }
   return map;

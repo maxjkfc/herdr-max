@@ -21,14 +21,14 @@ function toggleSidePanel(child) {
   const body = findNode(root, "panel-body");
   const gitBody = findNode(root, "git-body");
   if (gitBody && (child === "changes" || child === "graph" || child === "github" || child === "prs" || child === "issues" || child === "actions")) {
-    const stackChild = child === "changes" || child === "graph" ? child : "github";
+    const stackChild = child === "changes" || child === "graph" ? child : "git-remote";
     const ghTab = child === "github" ? "prs" : child;
     const on = panel && !panel.hidden && body?.active === "git" && gitBody.active === stackChild;
     if (on) {
       run("layout.hide", { id: "panel" });
     } else {
-      if (stackChild === "github") setShared("github.tab", ghTab);
-      setShared("git.subtab", stackChild === "github" ? ghTab : stackChild);
+      if (stackChild === "git-remote") setShared("git-remote.tab", ghTab);
+      setShared("git.subtab", stackChild === "git-remote" ? ghTab : stackChild);
       setShared("git.focus", { target: stackChild, at: Date.now() });
       run("layout.select", { stack: "panel-body", child: "git" });
       run("layout.select", { stack: "git-body", child: stackChild });

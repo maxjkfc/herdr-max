@@ -1,13 +1,14 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { exec, focused, layout, notify, panes, run, shared, setShared, spaces, theme, window } from "herdr";
+import { describeRemote } from "./platform.js";
 
 const TABS = [
   ["changes", "Changes", "mods/changes/changes.svg"],
   ["graph", "Graph", "mods/tabs-plus/graph.svg"],
-  ["prs", "PRs", "mods/github/icons/pr-open.svg"],
-  ["issues", "Issues", "mods/github/icons/issue-open.svg"],
-  ["actions", "CI", "mods/github/icons/actions.svg"],
+  ["prs", "PRs", "mods/git-remote/icons/pr-open.svg"],
+  ["issues", "Issues", "mods/git-remote/icons/issue-open.svg"],
+  ["actions", "CI", "mods/git-remote/icons/actions.svg"],
 ];
 
 function find(node, id) {
@@ -34,9 +35,9 @@ export function selectGitTab(id) {
     setShared("git.focus", { target: id, at: Date.now() });
     run("layout.select", { stack: "git-body", child: id });
   } else {
-    setShared("github.tab", id);
-    setShared("git.focus", { target: "github", at: Date.now() });
-    run("layout.select", { stack: "git-body", child: "github" });
+    setShared("git-remote.tab", id);
+    setShared("git.focus", { target: "git-remote", at: Date.now() });
+    run("layout.select", { stack: "git-body", child: "git-remote" });
   }
 }
 
@@ -64,6 +65,8 @@ export default class GitHubSwitcher extends View {
         if (top.code !== 0) { if (this.context === context) this.sync = { repo: false }; return; }
         const root = top.stdout.trim();
         const branch = (await git(["rev-parse", "--abbrev-ref", "HEAD"])).stdout.trim();
+        const origin = await git(["remote", "get-url", "origin"]);
+        const remote = origin.code === 0 ? describeRemote(origin.stdout) : null;
         const up = await git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
         let ahead = 0, behind = 0;
         if (up.code === 0) {
@@ -71,7 +74,7 @@ export default class GitHubSwitcher extends View {
           if (c.code === 0) [ahead, behind] = c.stdout.trim().split(/\s+/).map(Number);
         }
         if (this.context === context) {
-          this.sync = { repo: true, root, branch, upstream: up.code === 0 ? up.stdout.trim() : null, ahead, behind, on };
+          this.sync = { repo: true, root, branch, remote, upstream: up.code === 0 ? up.stdout.trim() : null, ahead, behind, on };
         }
       } catch { if (this.context === context) this.sync = null; }
       finally { this.reading = false; cx.notify(); }
@@ -98,7 +101,7 @@ export default class GitHubSwitcher extends View {
           else {
             const n = (await exec("git", ["rev-list", "--count", `${before}..${after}`], { cwd: s.root, on: s.on })).stdout.trim();
             title = `已拉取 ${n} 個 commit · ${s.branch}`; level = "success";
-            setShared("github.changed", { at: Date.now() });
+            setShared("git-remote.changed", { at: Date.now() });
           }
         }
       } catch (e) { title = "拉取失敗"; body = String(e).slice(0, 160); level = "error"; }
@@ -120,6 +123,11 @@ export default class GitHubSwitcher extends View {
       info = h_flex().gap(8).items_center().flex_1().min_w(0)
         .child(svg("mods/workspace-chrome/branch.svg").size(13).flex_none().text_color(t.muted))
         .child(div().min_w(0).truncate().text_size(12.5).font_semibold().child(s.branch))
+        .when(Boolean(s.remote), (e) => {
+          const c = s.remote.color ?? t.muted;
+          return e.child(div().flex_none().h(18).px(6).flex().items_center().rounded(4).border_1().border_color(`${c}66`)
+            .text_size(10.5).text_color(c).tooltip(`origin：${s.remote.host}/${s.remote.slug}`).child(s.remote.label));
+        })
         .when(!s.upstream, (e) => e.child(div().text_size(11).text_color(t.dim).child("無上游分支")))
         .when(s.behind > 0, (e) => e.child(label(`↓${s.behind}`, t.warning ?? t.working)))
         .when(s.ahead > 0, (e) => e.child(label(`↑${s.ahead}`, t.accent)))
@@ -146,8 +154,8 @@ export default class GitHubSwitcher extends View {
     if (JSON.stringify([cwd, on]) !== this.context) this.refreshSync(cx);
     const body = find(layout(), "git-body");
     const stackActive = body?.active ?? "changes";
-    const ghTab = shared("github.tab") ?? "prs";
-    const active = stackActive === "github" ? (["prs", "issues", "actions"].includes(ghTab) ? ghTab : "prs") : stackActive;
+    const ghTab = shared("git-remote.tab") ?? "prs";
+    const active = stackActive === "git-remote" ? (["prs", "issues", "actions"].includes(ghTab) ? ghTab : "prs") : stackActive;
 
     return v_flex().id("git-switcher").size_full().bg(t.background).text_color(t.foreground)
       .child(h_flex().h(40).flex_none().px(8).gap(3).items_center().border_b(1).border_color(t.border)
