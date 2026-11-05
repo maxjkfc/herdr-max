@@ -12,7 +12,8 @@ import { agents, panes, spaces, focused, hc, run } from "herdr";
 export function startAgent(prog, { root, on, name, text, cx, done }) {
   const cur = focused();
   const tabs = new Set((spaces().find((s) => s.id === cur?.space)?.tabs ?? []).map((t) => t.id));
-  const inRepo = (p) => root && p.terminal && p.cwd && (p.cwd === root || p.cwd.startsWith(`${root.replace(/\/+$/, "")}/`));
+  const dir = root?.replace(/\/+$/, "");
+  const inRepo = (p) => dir && p.terminal && p.cwd && (p.cwd === dir || p.cwd.startsWith(`${dir}/`));
   const all = panes(), here = all.filter((p) => tabs.has(p.tab));
   const target = on ? null : here.find((p) => p.focused && inRepo(p)) ?? here.find((p) => p.tab === cur?.tab && inRepo(p)) ?? here.find(inRepo);
   if (!target) {
