@@ -124,10 +124,11 @@ export default class Review extends View {
   async loadFiles(cx, gen = this.gen) {
     this.note = null;
     if (this.scope === "branch" && !this.info.mergeBase) { this.note = "找不到 base 分支（origin/HEAD、main、master），改看未提交的變更"; this.scope = "work"; }
-    this.ref = await this.refFor(this.scope);
+    const ref = await this.refFor(this.scope);
     if (gen !== this.gen) return;
+    this.ref = ref;
     const [stat, untracked] = await Promise.all([
-      this.git(["diff", this.ref, "--numstat", "-z", "--no-renames"]),
+      this.git(["diff", ref, "--numstat", "-z", "--no-renames"]),
       this.git(["ls-files", "--others", "--exclude-standard", "-z"]),
     ]);
     if (!this.ok(stat)) throw new Error(stat.stderr.trim() || "git diff 失敗");
