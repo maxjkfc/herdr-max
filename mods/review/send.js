@@ -50,16 +50,19 @@ export class SendDialog {
     });
   }
 
-  // No agent is running: start one beside the repo's terminal (a split pane in the same tab; pane.split takes no task, so
-  // the message is sent once the agent is up). Without a terminal in the repo it gets a tab of its own, with the task.
+  // No agent is running: start one beside a terminal of this repo in the CURRENT space (a split pane in its tab; pane.split
+  // takes no task, so the message is sent once the agent is up). With no such terminal it gets a tab of its own in the
+  // current space, with the task. Never another space: a tab.new with no space, or a terminal of the same repo in some
+  // other space, put the agent in a space the person wasn't looking at.
   start(prog, cx) {
     if (!this.ready()) return;
     const inRepo = (p) => p.terminal && p.cwd && (p.cwd === this.root || p.cwd.startsWith(`${this.root.replace(/\/+$/, "")}/`));
-    const all = panes(), here = focused()?.tab;
-    const target = all.find((p) => p.focused && inRepo(p)) ?? all.find((p) => p.tab === here && inRepo(p)) ?? all.find(inRepo);
+    const cur = focused(), tabs = new Set((spaces().find((s) => s.id === cur?.space)?.tabs ?? []).map((t) => t.id));
+    const all = panes(), here = all.filter((p) => tabs.has(p.tab));
+    const target = here.find((p) => p.focused && inRepo(p)) ?? here.find((p) => p.tab === cur?.tab && inRepo(p)) ?? here.find(inRepo);
     this.sending = true; cx.notify();
     if (!target || this.on) {
-      run("tab.new", { name: "審查", folder: this.root, argv: prog.run, task: this.message() });
+      run("tab.new", { name: "審查", ...(cur?.space ? { space: cur.space } : {}), folder: this.root, argv: prog.run, task: this.message() });
       this.sent(prog.name, cx);
       return;
     }
