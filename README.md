@@ -117,5 +117,9 @@ Paste into any agent running inside Herdr:
 | `Cmd+Shift+↑` / `↓` | Scroll half a page up / down |
 | `Cmd+Shift+Home` / `End` | Scroll to top / bottom |
 
+## Agent Icons
+
+`programs.json` gives `omp` (Oh My Pi) its own icon in the Agents list and pane headers (`icons/omp.svg`, taken from [can1357/oh-my-pi](https://github.com/can1357/oh-my-pi), MIT). `install.sh` copies the icon and only creates `programs.json` if you don't already have one.
+
 ## License
 Apache-2.0
