@@ -7,6 +7,8 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 PAIRS=(
   "mods/git-remote/platform.js mods/git-hub/platform.js"
+  "mods/git-remote/diff.js mods/git-graph/diff.js"
+  "mods/git-graph/filetree.js mods/git-remote/filetree.js"
 )
 
 body() { grep -v '^// Mirror of ' "$1"; }

@@ -132,8 +132,8 @@ In the PR dialog the changed files are a column on the left of the diff (virtual
 
 | Command | What it checks |
 |---|---|
-| `bun test tests/` | Pure logic: remote-URL platform detection (`platform.js`), unified-diff parsing (`diff.js`). |
-| `scripts/check-mirrors.sh` | Files that must be identical copies because a mod cannot import another mod's files (`platform.js` in `git-remote` and `git-hub`). Add pairs to `PAIRS` in the script. |
+| `bun test tests/` | Pure logic: remote-URL platform detection (`platform.js`), unified-diff parsing (`diff.js`), the changed-files folder tree (`filetree.js`). |
+| `scripts/check-mirrors.sh` | Files that must be identical copies because a mod cannot import another mod's files (`platform.js`, `diff.js`, `filetree.js`). Add pairs to `PAIRS` in the script. |
 | `scripts/diff-live.sh [-d]` | What the repo ships vs what runs in `~/.config/herdr-app` (`HERDR_APP_HOME`): lists differing or missing files, `-d` prints the diffs. Run it before opening a PR so live fixes don't stay out of the repo. |
 
 The `worktree-plus` auto-clean leaves a worktree alone for 6 hours unless it has been open in a Herdr space at least once, so a worktree made with plain `git worktree add` is not removed the moment it is created. Mark a worktree permanent with `wt-helper.py keep-wt <path>`.
