@@ -1,6 +1,6 @@
 import { div } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea } from "gpui-base";
-import { agents, panes, spaces, knownAgents, hc, run, notify, closeOverlay, setShared, theme } from "herdr";
+import { agents, panes, spaces, focused, knownAgents, hc, run, notify, closeOverlay, setShared, theme } from "herdr";
 import { matchAgents } from "./drafts.js";
 
 // The send dialog: the review (or a question about some lines) goes to one agent. The review dialog opens it with
@@ -50,14 +50,36 @@ export class SendDialog {
     });
   }
 
-  // No agent is running: start one in a new tab with the message as its first task.
+  // No agent is running: start one beside the repo's terminal (a split pane in the same tab; pane.split takes no task, so
+  // the message is sent once the agent is up). Without a terminal in the repo it gets a tab of its own, with the task.
   start(prog, cx) {
     if (!this.ready()) return;
-    // No `space`: the tab opens in the space being looked at (where review was opened from), with `folder` as its cwd.
-    // Naming a space by folder match failed with "no space <id>" when the match was one tab.new can't resolve.
+    const inRepo = (p) => p.terminal && p.cwd && (p.cwd === this.root || p.cwd.startsWith(`${this.root.replace(/\/+$/, "")}/`));
+    const all = panes(), here = focused()?.tab;
+    const target = all.find((p) => p.focused && inRepo(p)) ?? all.find((p) => p.tab === here && inRepo(p)) ?? all.find(inRepo);
     this.sending = true; cx.notify();
-    run("tab.new", { name: "審查", folder: this.root, argv: prog.run, task: this.message() });
-    this.sent(prog.name, cx);
+    if (!target || this.on) {
+      run("tab.new", { name: "審查", folder: this.root, argv: prog.run, task: this.message() });
+      this.sent(prog.name, cx);
+      return;
+    }
+    const before = new Set(all.map((p) => p.pane)), text = this.message();
+    run("pane.split", { direction: "right", pane: target.pane, argv: prog.run });
+    // The new pane, then its agent (first sign of life), then a moment for its prompt before the text goes in.
+    let tries = 0, address = null;
+    const wait = (cx) => {
+      if (++tries > 60) { this.error = "agent 沒有在 30 秒內啟動，訊息沒有送出"; this.sending = false; cx.notify(); return; }
+      address ??= panes().find((p) => p.terminal && !before.has(p.pane))?.terminal ?? null;
+      if (address && agents().some((a) => a.address === address)) {
+        cx.timer.after(1500, (cx) => {
+          hc(["send", address, text]).then((r) => {
+            if (r.code === 0) this.sent(prog.name, cx);
+            else { this.error = (r.stderr || r.stdout).trim().slice(0, 300) || "hc send 失敗"; this.sending = false; cx.notify(); }
+          }).catch((e) => { this.error = String(e).slice(0, 300); this.sending = false; cx.notify(); });
+        });
+      } else cx.timer.after(500, wait);
+    };
+    cx.timer.after(500, wait);
   }
 
   onKey(e, cx) {
