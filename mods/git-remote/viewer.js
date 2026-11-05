@@ -7,6 +7,7 @@ import { entries, tally, loginOf } from "./timeline.js";
 import { primer, glyph, spinner, ago, openUrl, issueState, prState, checksOf, glyphOf, labelChip, button, badge } from "./ui.js";
 import { ghJson, gh, localState } from "./gh.js";
 import { parseDiff } from "./diff.js";
+import { diffColors, diffRow, loadPaletteId, nextPaletteId, savePaletteId, syntaxColors, tokenizeRows } from "./diffview.js";
 import { issueBrief, prBrief } from "./brief.js";
 import { pickAgent, openIssueWorktree } from "./actions.js";
 
@@ -26,14 +27,6 @@ const METHODS = [["merge", "Merge commit", "pr-merged", "M"], ["squash", "Squash
 const MONO = "JetBrains Mono";
 const MAX_DIFF_ROWS = 5000;
 const FILE_ROW_H = 28;
-// Diff colors, cycled from the diff header and remembered. `add`/`del` null = take the theme's green/red;
-// `a` is the row tint's alpha (hex). Add a preset here to get another choice.
-const DIFF_PALETTES = [
-  { id: "theme", label: "主題", add: null, del: null, a: "18" },
-  { id: "vivid", label: "鮮明", add: null, del: null, a: "33" },
-  { id: "github", label: "GitHub", add: "#2ea043", del: "#f85149", a: "26" },
-  { id: "cb", label: "藍橘（色盲友善）", add: "#388bfd", del: "#f0883e", a: "2e" },
-];
 const PALETTE_KEY = "github.diffPalette";
 
 const display = (name) => name.replace(/^app\//, "").replace(/\[bot\]$/, "");
@@ -52,7 +45,7 @@ export class Viewer {
     this.trail = []; this.items = {}; this.threads = {}; this.repoLabels = {}; this.mode = "write";
     this.diffs = {}; this.fileIdx = 0; this.diffRows = []; this.diffWidth = 0;
     this.fileList = VirtualListScrollHandle.new();
-    try { this.paletteId = localStorage.getItem(PALETTE_KEY) ?? "theme"; } catch { this.paletteId = "theme"; }
+    this.paletteId = loadPaletteId(PALETTE_KEY);
     this.merging = false; this.mergeError = null; this.typing = false;
     this.handle = cx.focus_handle();
     if (data) this.items[this.key()] = data;
@@ -146,6 +139,7 @@ export class Viewer {
     const files = this.diffs[this.key()] ?? [];
     this.fileIdx = files.length ? Math.max(0, Math.min(idx, files.length - 1)) : 0;
     const rows = files[this.fileIdx]?.rows ?? [];
+    tokenizeRows(rows, files[this.fileIdx]?.path);
     this.diffRows = rows.length > MAX_DIFF_ROWS
       ? [...rows.slice(0, MAX_DIFF_ROWS), { kind: "@", text: `Diff truncated at ${MAX_DIFF_ROWS} lines` }]
       : rows;
@@ -471,30 +465,16 @@ export class Viewer {
       .when(Boolean(this.mergeError), (e) => e.child(div().text_size(12).text_color(p.closed).child(this.mergeError)));
   }
 
-  palette(t) {
-    const p = DIFF_PALETTES.find((x) => x.id === this.paletteId) ?? DIFF_PALETTES[0];
-    return { ...p, add: p.add ?? t.ansi2, del: p.del ?? t.ansi1 };
-  }
+  palette(t) { return diffColors(this.paletteId, t); }
 
   cyclePalette() {
-    const at = DIFF_PALETTES.findIndex((x) => x.id === this.paletteId);
-    this.paletteId = DIFF_PALETTES[(at + 1) % DIFF_PALETTES.length].id;
-    try { localStorage.setItem(PALETTE_KEY, this.paletteId); } catch { /* memory only */ }
-  }
-
-  diffRow({ kind, number, text }, t, c) {
-    if (kind === "@") return div().w_full().px(12).h(22).flex_none().truncate().bg(t.raised).text_color(t.dim).child(text);
-    const tone = kind === "+" ? c.add : kind === "-" ? c.del : null;
-    return h_flex().w_full().h(22).flex_none()
-      .when(Boolean(tone), (e) => e.bg(tone + c.a))
-      .child(div().w(3).h_full().flex_none().when(Boolean(tone), (e) => e.bg(tone)))
-      .child(div().w(40).flex_none().text_right().text_color(tone ?? t.dim).child(number === undefined ? "" : String(number)))
-      .child(div().flex_1().min_w(0).pl(10).truncate().child(text));
+    this.paletteId = nextPaletteId(this.paletteId);
+    savePaletteId(PALETTE_KEY, this.paletteId);
   }
 
   // Right-hand side of the PR split workbench: changed files down the left, the selected file's diff on the right.
   diffWorkbench(i, t, cx) {
-    const p = primer(t), c = this.palette(t), files = this.diffs[this.key()] ?? [];
+    const p = primer(t), c = this.palette(t), colors = syntaxColors(t), files = this.diffs[this.key()] ?? [];
     const cur = files[this.fileIdx];
 
     const tree = treeRows(files, this.collapsed, this.filter);
@@ -552,7 +532,7 @@ export class Viewer {
         .child(div().id("pr-diff-scroll-x").size_full().overflow_x_scrollbar()
           .child(div().w_full().min_w(this.diffWidth).h_full().child(
             v_virtual_list("pr-diff-rows", this.diffRows.length, 22, (idx) => String(idx),
-              (range) => this.diffRows.slice(range.start, range.end).map((row) => this.diffRow(row, t, c))).size_full())))
+              (range) => this.diffRows.slice(range.start, range.end).map((row) => diffRow(row, t, c, colors, 22))).size_full())))
         .child(Scrollbar.vertical("pr-diff-rows").viewport_from_layout().absolute().inset_0()));
 
     return h_flex().flex_1().min_w(0).h_full().child(filesPanel).child(diffPane);

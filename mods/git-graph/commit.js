@@ -3,18 +3,12 @@ import { v_flex, h_flex, Scrollbar, v_virtual_list, VirtualListScrollHandle, Inp
 import { exec, theme, closeOverlay } from "herdr";
 import { treeRows } from "./filetree.js";
 import { parseDiff } from "./diff.js";
+import { diffColors, diffRow, loadPaletteId, nextPaletteId, savePaletteId, syntaxColors, tokenizeRows } from "./diffview.js";
 
 const READ = ["--no-optional-locks", "-c", "core.fsmonitor=false"];
 const MONO = "JetBrains Mono";
 const FILE_ROW_H = 28, DIFF_ROW_H = 22, MAX_DIFF_ROWS = 5000;
 
-// Diff colors, cycled from the diff header and remembered. null add/del = the theme's green/red; `a` is the tint's alpha (hex).
-const PALETTES = [
-  { id: "theme", label: "主題", add: null, del: null, a: "18" },
-  { id: "vivid", label: "鮮明", add: null, del: null, a: "33" },
-  { id: "github", label: "GitHub", add: "#2ea043", del: "#f85149", a: "26" },
-  { id: "cb", label: "藍橘（色盲友善）", add: "#388bfd", del: "#f0883e", a: "2e" },
-];
 const PALETTE_KEY = "commit.diffPalette";
 
 const pad = (n) => String(n).padStart(2, "0");
@@ -34,7 +28,7 @@ export class CommitDialog {
     this.filterInput.on("blur", (_e, cx) => { this.typing = false; cx.notify(); });
     this.handle = cx.focus_handle();
     this.fileList = VirtualListScrollHandle.new();
-    try { this.paletteId = localStorage.getItem(PALETTE_KEY) ?? "theme"; } catch { this.paletteId = "theme"; }
+    this.paletteId = loadPaletteId(PALETTE_KEY);
     cx.timer.after(40, () => this.handle.focus());
     this.load(cx);
   }
@@ -62,6 +56,7 @@ export class CommitDialog {
   pick(idx) {
     this.fileIdx = this.files.length ? Math.max(0, Math.min(idx, this.files.length - 1)) : 0;
     const rows = this.files[this.fileIdx]?.rows ?? [];
+    tokenizeRows(rows, this.files[this.fileIdx]?.path);
     this.rows = rows.length > MAX_DIFF_ROWS ? [...rows.slice(0, MAX_DIFF_ROWS), { kind: "@", text: `Diff truncated at ${MAX_DIFF_ROWS} lines` }] : rows;
     let longest = 0;
     for (const r of this.rows) if (r.text.length > longest) longest = r.text.length;
@@ -78,9 +73,8 @@ export class CommitDialog {
   }
 
   cyclePalette() {
-    const at = PALETTES.findIndex((x) => x.id === this.paletteId);
-    this.paletteId = PALETTES[(at + 1) % PALETTES.length].id;
-    try { localStorage.setItem(PALETTE_KEY, this.paletteId); } catch { /* memory only */ }
+    this.paletteId = nextPaletteId(this.paletteId);
+    savePaletteId(PALETTE_KEY, this.paletteId);
   }
 
   onKey(e, cx) {
@@ -102,20 +96,9 @@ export class CommitDialog {
       .text_size(12).text_color(color).when(mono, (e) => e.font_family(MONO)).child(text);
   }
 
-  diffRow({ kind, number, text }, t, c) {
-    if (kind === "@") return div().w_full().px(12).h(DIFF_ROW_H).flex_none().truncate().bg(t.raised).text_color(t.dim).child(text);
-    const tone = kind === "+" ? c.add : kind === "-" ? c.del : null;
-    return h_flex().w_full().h(DIFF_ROW_H).flex_none()
-      .when(Boolean(tone), (e) => e.bg(tone + c.a))
-      .child(div().w(3).h_full().flex_none().when(Boolean(tone), (e) => e.bg(tone)))
-      .child(div().w(40).flex_none().text_right().text_color(tone ?? t.dim).child(number === undefined ? "" : String(number)))
-      .child(div().flex_1().min_w(0).pl(10).truncate().child(text));
-  }
-
   render(cx) {
     const t = theme(), commit = this.commit, files = this.files, cur = files[this.fileIdx];
-    const pal = PALETTES.find((x) => x.id === this.paletteId) ?? PALETTES[0];
-    const c = { ...pal, add: pal.add ?? t.ansi2, del: pal.del ?? t.ansi1 };
+    const c = diffColors(this.paletteId, t), colors = syntaxColors(t);
     const add = files.reduce((n, f) => n + f.add, 0), del = files.reduce((n, f) => n + f.del, 0);
     const refColor = { head: t.accent, branch: t.ansi2, remote: t.ansi4, tag: t.ansi3 };
     const button = (id, label, on_click) => div().id(id).h(26).px(8).flex().items_center().flex_none().rounded(6).border_1().border_color(t.border).text_size(12)
@@ -190,7 +173,7 @@ export class CommitDialog {
         .child(div().id("cd-diff-x").size_full().overflow_x_scrollbar()
           .child(div().w_full().min_w(this.diffWidth).h_full().child(
             v_virtual_list("cd-rows", this.rows.length, DIFF_ROW_H, (i) => String(i),
-              (range) => this.rows.slice(range.start, range.end).map((row) => this.diffRow(row, t, c))).size_full())))
+              (range) => this.rows.slice(range.start, range.end).map((row) => diffRow(row, t, c, colors, DIFF_ROW_H))).size_full())))
         .child(Scrollbar.vertical("cd-rows").viewport_from_layout().absolute().inset_0()));
 
     return v_flex().id("commit-dialog").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13.5)

@@ -9,6 +9,8 @@ PAIRS=(
   "mods/git-remote/platform.js mods/git-hub/platform.js"
   "mods/git-remote/diff.js mods/git-graph/diff.js"
   "mods/git-graph/filetree.js mods/git-remote/filetree.js"
+  "mods/git-remote/highlight.js mods/git-graph/highlight.js"
+  "mods/git-remote/diffview.js mods/git-graph/diffview.js"
 )
 
 body() { grep -v '^// Mirror of ' "$1"; }
