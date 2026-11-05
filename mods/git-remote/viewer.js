@@ -310,7 +310,7 @@ export class Viewer {
     pickAgent({
       name: `${this.pr() ? "PR " : ""}#${i.number} ${this.repo.split("/")[1]}`,
       brief: this.brief(),
-      folder: (this.pr() ? worktreeOf(this.localState ? { worktrees: this.localState.worktrees } : null, i.headRefName)?.path : null) ?? l?.folder ?? null,
+      folder: (this.pr() ? worktreeOf(this.localState, i.headRefName)?.path : null) ?? l?.folder ?? null,
       space: l?.space ?? null,
       issue: this.pr() ? null : { number: i.number, title: i.title },
     });
