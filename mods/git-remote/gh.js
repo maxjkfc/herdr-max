@@ -157,6 +157,13 @@ export async function localState(folder) {
     else if (line.startsWith("# branch.ab ")) { const [a, b] = line.slice(12).split(" "); out.ahead = +a; out.behind = -b; }
     else if (line && !line.startsWith("#")) out.changed++;
   }
+  // Every worktree of the clone with its branch: the agent for a PR works in the one that has the PR's branch.
+  const w = await exec("git", ["worktree", "list", "--porcelain"], { cwd: folder }).catch(() => null);
+  out.worktrees = [];
+  for (const line of w?.code === 0 ? w.stdout.split("\n") : []) {
+    if (line.startsWith("worktree ")) out.worktrees.push({ path: line.slice(9), branch: null });
+    else if (line.startsWith("branch ") && out.worktrees.length) out.worktrees[out.worktrees.length - 1].branch = line.slice(7).replace(/^refs\/heads\//, "");
+  }
   return out;
 }
 

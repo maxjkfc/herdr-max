@@ -4,7 +4,7 @@ import { spaces, panes, agents, focused, run, layout, theme, openOverlay, closeO
 import { primer, glyph, spinner, ago, openUrl, issueState, prState, runState, checksOf, glyphOf, labelChip, button, blankslate, skeleton } from "./ui.js";
 import { gh, ghJson, account, declaredUser, loginsOf, remoteOf, checkouts, load, localState, ROOTS } from "./gh.js";
 import { githubSlug } from "./platform.js";
-import { issueBrief, prBrief } from "./brief.js";
+import { issueBrief, prBrief, worktreeOf } from "./brief.js";
 import { Viewer } from "./viewer.js";
 import { RunView } from "./run.js";
 import { AgentMenu, copied, pickAgent, copyMenu, renderCopyMenu, openIssueWorktree } from "./actions.js";
@@ -238,16 +238,19 @@ export default class GitHub extends View {
     const full = { ...await ghJson([kind === "pr" ? "pr" : "issue", "view", String(item.number), "-R", item.repo, "--json", fields]), repo: item.repo };
     if (kind === "pr") full.checks = checksOf(full);
     const l = this.locals[item.repo], local = l ? { ...l, ...(await localState(l.folder) ?? {}) } : null;
-    return kind === "pr" ? prBrief(full, { local }) : issueBrief(full, { local });
+    // A PR's agent works where its branch is already checked out, if some worktree of the clone has it.
+    const folder = kind === "pr" ? worktreeOf(local, full.headRefName)?.path ?? null : null;
+    return { text: kind === "pr" ? prBrief(full, { local }) : issueBrief(full, { local }), folder };
   }
   startAgent(item, kind, cx) {
     cx.spawn(async () => {
       try {
         const l = this.locals[item.repo];
+        const { text, folder } = await this.brief(item, kind);
         pickAgent({
           name: `${kind === "pr" ? "PR " : ""}#${item.number} ${item.repo.split("/")[1]}`,
-          brief: await this.brief(item, kind),
-          folder: l?.folder ?? null,
+          brief: text,
+          folder: folder ?? l?.folder ?? null,
           space: l?.space ?? null,
           issue: kind === "issue" ? { number: item.number, title: item.title } : null,
         });

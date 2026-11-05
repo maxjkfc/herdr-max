@@ -65,7 +65,7 @@ A customized [Herdr](https://herdr.dev) desktop layout (`main-custom`) and mod s
   - **Direct PR Merge**: Embedded in `mergeBox` with **Merge commit / Squash and merge / Rebase and merge** confirmation and `--match-head-commit` SHA guard.
 - **1-Click Issue → Herdr Worktree (`spaces-plus` + `worktree-plus` integration)**:
   - Click the branch icon on any hovered Issue row, or click **Open Worktree** inside the Issue dialog, to automatically create `~/.herdr/worktrees/<repo>/feat/issue-<N>-<slug>`, bind `🎯 #<N>` in `shared("worktree-plus.meta")`, and switch to the new nested Worktree Space.
-  - **Start agent** (PR or Issue, and the review dialog's 啟動) goes through one shared `startagent.js`: always in the space you are looking at; beside a terminal of the repo in that space as a split pane to the right (the brief is sent with `hc send` once the agent is up), otherwise as a new tab with the brief as its first task. On an Issue the `🌱 在新 Worktree 啟動并綁定 Issue` toggle launches the agent inside the isolated Issue Worktree instead.
+  - **Start agent** (PR or Issue, and the review dialog's 啟動) goes through one shared `startagent.js`: always in the space you are looking at; beside a terminal of the repo in that space as a split pane to the right (the brief is sent with `hc send` once the agent is up), otherwise as a new tab with the brief as its first task. For a **PR**, if a worktree of the local clone already has the PR's branch checked out, the agent starts there and the brief names that path and says not to `gh pr checkout` (without one, it still tells the agent to check the PR out). On an Issue the `🌱 在新 Worktree 啟動并綁定 Issue` toggle launches the agent inside the isolated Issue Worktree instead.
 
 ---
 
@@ -150,7 +150,7 @@ In the PR dialog the changed files are a column on the left of the diff (virtual
 
 | Command | What it checks |
 |---|---|
-| `bun test tests/` | Pure logic: remote-URL platform detection (`platform.js`), unified-diff parsing (`diff.js`), the changed-files folder tree (`filetree.js`), the syntax tokenizer (`highlight.js`), review drafts / messages / agent matching (`review/drafts.js`), worktree list parsing (`review/worktrees.js`). |
+| `bun test tests/` | Pure logic: remote-URL platform detection (`platform.js`), unified-diff parsing (`diff.js`), the changed-files folder tree (`filetree.js`), the syntax tokenizer (`highlight.js`), agent briefs (`brief.js`), review drafts / messages / agent matching (`review/drafts.js`), worktree list parsing (`review/worktrees.js`). |
 | `scripts/check-mirrors.sh` | Files that must be identical copies because a mod cannot import another mod's files (`platform.js`, `diff.js`, `filetree.js`, `highlight.js`, `diffview.js`, `startagent.js`). Add pairs to `PAIRS` in the script. |
 | `scripts/diff-live.sh [-d]` | What the repo ships vs what runs in `~/.config/herdr-app` (`HERDR_APP_HOME`): lists differing or missing files, `-d` prints the diffs. Run it before opening a PR so live fixes don't stay out of the repo. |
 
