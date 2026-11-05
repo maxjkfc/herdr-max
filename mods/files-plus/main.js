@@ -2,7 +2,7 @@
 // buttons that open the file (or folder) in Finder, Zed or Chrome.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
-import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, window, notify } from "herdr";
+import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, window, notify, props, openOverlay, closeOverlay } from "herdr";
 
 function location() {
   const space = spaces().find(s => s.active), f = focused();
@@ -39,8 +39,20 @@ async function directory(path, on) {
   return out;
 }
 
+// `open` is on every Mac and finds the apps by name; a file is revealed (selected) in Finder, a folder is opened.
+// A plain promise, not cx.spawn: the right-click menu closes its own view right after the click.
+function openPath(app, abs, isFile) {
+  const args = app === "finder" ? (isFile ? ["-R", abs] : [abs]) : ["-a", app === "zed" ? "Zed" : "Google Chrome", abs];
+  exec("open", args).catch(e => ({ code: 1, stderr: String(e) })).then(r => {
+    if (r.code !== 0) notify({ title: "開啟失敗", body: (r.stderr || r.stdout || "").trim().slice(0, 200) || args.join(" "), level: "error" });
+  });
+}
+
 export default class Files extends View {
   init(_props, cx) {
+    // The right-click menu is this mod opened as a popup, told so by props.
+    const pr = props() ?? {};
+    if (pr.menu) { this.menu = { ...pr.menu, overlay: pr.overlay }; return; }
     this.saved = new Map();
     this.entries = new Map(); this.folders = new Set(); this.pending = new Set(); this.marks = {};
     this.refresh(cx);
@@ -154,15 +166,26 @@ export default class Files extends View {
     return { rel, abs: rel ? `${this.root}/${rel}` : this.root, isFile: Boolean(this.file) };
   }
 
-  openWith(app, cx) {
+  openWith(app) {
     const { abs, isFile } = this.target();
-    if (!abs || this.on) return;
-    // `open` is on every Mac and finds the apps by name; a file is revealed (selected) in Finder, a folder is opened.
-    const args = app === "finder" ? (isFile ? ["-R", abs] : [abs]) : ["-a", app === "zed" ? "Zed" : "Google Chrome", abs];
-    cx.spawn(async () => {
-      const r = await exec("open", args).catch(e => ({ code: 1, stderr: String(e) }));
-      if (r.code !== 0) notify({ title: "開啟失敗", body: (r.stderr || r.stdout || "").trim().slice(0, 200) || args.join(" "), level: "error" });
-    });
+    if (abs && !this.on) openPath(app, abs, isFile);
+  }
+
+  // Right-click on a row: a small menu at the pointer to open that entry (not just the selected one).
+  openMenu(abs, isFile) {
+    if (!this.root || this.on) return;
+    openOverlay({ mod: "files-plus", kind: "popup", width: 200, height: 4 * 34 + 8, at: "pointer", props: { menu: { abs, isFile } } });
+  }
+
+  renderMenu(t) {
+    const m = this.menu;
+    const item = (id, label, on_click) => h_flex().id(id).h(34).px(10).items_center().rounded(6).cursor_pointer()
+      .hover(s => s.bg(t.hover)).on_click((_e, cx) => { on_click(cx); closeOverlay(m.overlay); }).child(div().text_size(13).child(label));
+    return v_flex().id("files-menu").size_full().p(4).bg(t.popover).text_color(t.foreground)
+      .child(item("fm-finder", m.isFile ? "在 Finder 顯示" : "用 Finder 開啟", () => openPath("finder", m.abs, m.isFile)))
+      .child(item("fm-zed", "用 Zed 開啟", () => openPath("zed", m.abs, m.isFile)))
+      .child(item("fm-chrome", "用 Chrome 開啟", () => openPath("chrome", m.abs, m.isFile)))
+      .child(item("fm-copy", "複製路徑", cx => cx.write_to_clipboard(m.abs)));
   }
 
   rows(prefix, depth, out, t) {
@@ -172,6 +195,7 @@ export default class Files extends View {
       const path = prefix ? `${prefix}/${entry.name}` : entry.name, open = this.folders.has(path), mark = this.marks[`${this.root}/${path}`];
       out.push(h_flex().id(`file-${path}`).h(28).flex_none().pl(8 + depth * 18).pr(8).gap(7).items_center().rounded(7).cursor_pointer().hover(s => s.bg(t.hover))
         .on_click((_e, cx) => { this.sel = entry.dir ? path : prefix; entry.dir ? this.toggle(path, cx) : this.show(path, cx); })
+        .on_mouse_down("right", () => this.openMenu(`${this.root}/${path}`, !entry.dir))
         .child(entry.dir ? svg(`mods/files-plus/chevron-${open ? "down" : "right"}.svg`).size(12).flex_none().text_color(t.dim) : div().w(12).flex_none())
         .child(svg(`mods/files-plus/${entry.dir ? "folder" : "file"}.svg`).size(14).flex_none().text_color(t.muted))
         .child(div().flex_1().min_w(0).truncate().child(entry.name))
@@ -182,6 +206,7 @@ export default class Files extends View {
   }
 
   render(cx) {
+    if (this.menu) return this.renderMenu(theme());
     if (key() !== this.context?.key) this.refresh(cx);
     const t = theme();
     const target = this.target(), local = Boolean(this.root) && !this.on;

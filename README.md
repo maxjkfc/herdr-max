@@ -126,7 +126,7 @@ Paste into any agent running inside Herdr:
 
 ## Files (`files-plus`)
 
-A fork of Herdr's built-in `files` panel (`main-custom` shows it instead; the built-in is untouched). Under the header a row shows what the buttons act on, with **Finder**, **Zed** and **Chrome** buttons: the file being previewed, else the folder you last clicked, else the project root. Finder reveals a file (selects it) or opens a folder; Zed and Chrome open the path (`open -a Zed|"Google Chrome" <path>`, macOS). Hidden for a space on another machine, whose paths aren't on this computer.
+A fork of Herdr's built-in `files` panel (`main-custom` shows it instead; the built-in is untouched). Under the header a row shows what the buttons act on, with **Finder**, **Zed** and **Chrome** buttons: the file being previewed, else the folder you last clicked, else the project root. **Right-click any row** (file or folder) for a menu at the pointer: Finder, Zed, Chrome, or 複製路徑 (copies the absolute path). Finder reveals a file (selects it) or opens a folder; Zed and Chrome open the path (`open -a Zed|"Google Chrome" <path>`, macOS). Buttons and menu are off for a space on another machine, whose paths aren't on this computer.
 
 ## Review (`review`)
 
