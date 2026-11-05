@@ -1,9 +1,11 @@
 import { View, div } from "gpui-kit";
-import { v_flex, h_flex, Scrollbar, v_virtual_list, VirtualListScrollHandle, InputState, Input } from "gpui-base";
-import { exec, theme, closeOverlay, props } from "herdr";
+import { v_flex, h_flex, Scrollbar, v_virtual_list, VirtualListScrollHandle, InputState, Input, TextareaState, Textarea } from "gpui-base";
+import { exec, theme, closeOverlay, openOverlay, props, shared, setShared } from "herdr";
 import { treeRows } from "./filetree.js";
 import { parseDiff } from "./diff.js";
 import { diffColors, diffRow, loadPaletteId, nextPaletteId, savePaletteId, syntaxColors, tokenizeRows } from "./diffview.js";
+import { askMessage, lineLabel, locate, makeDraft, reviewMessage } from "./drafts.js";
+import { SendDialog } from "./send.js";
 
 // Read-only review of a working tree, opened as a dialog from the Git panel's 審查 button with { root, on }.
 // Same safe flags as the Changes panel: never take index.lock (an agent's commit may need it), never start
@@ -12,19 +14,23 @@ const READ = ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "diff.a
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const MONO = "JetBrains Mono";
 const FILE_ROW_H = 28, DIFF_ROW_H = 22, MAX_DIFF_ROWS = 5000;
-const PALETTE_KEY = "review.diffPalette", SCOPE_KEY = "review.scopes";
+const PALETTE_KEY = "review.diffPalette", SCOPE_KEY = "review.scopes", DRAFTS_KEY = "review.drafts";
 // [id, label, what it compares]
 const SCOPES = [
   ["work", "未提交", "工作目錄 vs HEAD"],
   ["last", "最後一個 commit", "HEAD 的上一個 commit → 工作目錄（含未提交）"],
   ["branch", "對 base", "與 base 分支分岔後的全部變更（含未提交）"],
 ];
+// What a scope means, for the message an agent gets.
+const SCOPE_WORDS = { work: "working tree vs HEAD", last: "the last commit plus uncommitted changes", branch: "everything since the branch left its base, plus uncommitted changes" };
 
 const remembered = () => { try { return JSON.parse(localStorage.getItem(SCOPE_KEY) ?? "{}"); } catch { return {}; } };
 
 export default class Review extends View {
   init(_props, cx) {
     const pr = props() ?? {};
+    // The send dialog (a review, or a question about some lines) is this mod opened as an overlay, told so by props.
+    if (pr.send) { this.dialog = new SendDialog(pr.send, pr.overlay, cx); return; }
     Object.assign(this, { root: pr.root, on: pr.on ?? null, overlay: pr.overlay });
     this.scope = null; this.info = null; this.ref = null;           // info: { branch, base, mergeBase, ahead }
     this.files = []; this.fileIdx = 0; this.rows = []; this.diffWidth = 0;
@@ -38,6 +44,17 @@ export default class Review extends View {
     this.handle = cx.focus_handle();
     this.fileList = VirtualListScrollHandle.new();
     this.paletteId = loadPaletteId(PALETTE_KEY);
+    // Review comments: drafts of the shown scope (see list()), the selected lines, the comment box.
+    this.drafts = []; this.draftsKey = null; this.marks = new Set(); this.stale = new Set(); this.sel = null; this.editing = null; this.pendingJump = null;
+    this.composerText = "";
+    this.composerInput = TextareaState.new({ placeholder: "寫下你的意見，Cmd/Ctrl+Enter 加入…" });
+    this.composerInput.set_auto_grow(2, 6);
+    this.composerInput.on("change", (_e, cx) => { this.composerText = this.composerInput.value(); cx.notify(); });
+    this.composerInput.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
+    this.composerInput.on("blur", (_e, cx) => { this.typing = false; cx.notify(); });
+    this.composerInput.on("submit", (e, cx) => { if (e.secondary) this.addComment(cx); });
+    this.rowList = VirtualListScrollHandle.new();
+    this.sentAt = shared("review.sent")?.at;
     cx.timer.after(40, () => this.handle.focus());
     this.refresh(cx, true);
   }
@@ -120,7 +137,7 @@ export default class Review extends View {
 
   // Shows file `idx`; its diff is read the first time it is picked.
   pick(idx, cx) {
-    this.fileIdx = idx; this.rows = []; this.diffWidth = 0;
+    this.fileIdx = idx; this.rows = []; this.diffWidth = 0; this.closeComposer();
     const f = this.files[idx];
     if (!f) return;
     const key = `${this.scope}|${f.path}`, hit = this.cache.get(key);
@@ -149,6 +166,7 @@ export default class Review extends View {
     let longest = 0;
     for (const r of this.rows) if (r.text.length > longest) longest = r.text.length;
     this.diffWidth = Math.min(longest, 400) * 8 + 100;
+    this.refreshMarks(); this.applyJump();
   }
 
   // Next / previous file among the rows the tree shows (folders collapsed or filtered away are skipped).
@@ -160,6 +178,122 @@ export default class Review extends View {
     this.fileList.scroll_to_item(rows.indexOf(next), "center");
   }
 
+  // ---- review comments ----
+
+  draftKey() { return `${this.on ?? ""}:${this.root}|${this.scope}`; }
+
+  // The drafts of the shown repo and scope, read from storage when that changes.
+  list() {
+    const k = this.draftKey();
+    if (this.draftsKey !== k) {
+      this.draftsKey = k;
+      try { this.drafts = JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? "{}")[k] ?? []; } catch { this.drafts = []; }
+    }
+    return this.drafts;
+  }
+
+  saveDrafts() {
+    try {
+      const all = JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? "{}"), k = this.draftKey();
+      if (this.list().length) all[k] = this.drafts; else delete all[k];
+      localStorage.setItem(DRAFTS_KEY, JSON.stringify(all));
+    } catch { /* memory only */ }
+  }
+
+  // Rows of the shown file that carry a comment, and the drafts whose lines are gone.
+  refreshMarks() {
+    this.marks = new Set(); this.stale = new Set();
+    const path = this.files[this.fileIdx]?.path;
+    for (const d of this.list()) {
+      if (d.path !== path) continue;
+      const loc = locate(this.rows, d);
+      if (loc) for (let i = loc.from; i <= loc.to; i++) this.marks.add(i); else this.stale.add(d.id);
+    }
+  }
+
+  hunkRange(i) {
+    let to = i;
+    while (to + 1 < this.rows.length && this.rows[to + 1].kind !== "@") to++;
+    return { from: i + 1, to };
+  }
+
+  // A click on a diff row: select it (opens the comment box); a click on another row widens a one-line selection;
+  // the same row again deselects; a hunk header selects the whole hunk.
+  clickRow(i, cx) {
+    const row = this.rows[i], s = this.sel;
+    if (!row) return;
+    if (row.kind === "@") { const h = this.hunkRange(i); this.sel = { from: h.from, to: h.to, anchor: h.from }; }
+    else if (s && !this.editing && s.from === s.to && s.anchor === i) { this.closeComposer(); cx.notify(); return; }
+    else if (s && !this.editing && s.from === s.to) this.sel = { from: Math.min(s.anchor, i), to: Math.max(s.anchor, i), anchor: s.anchor };
+    else this.sel = { from: i, to: i, anchor: i };
+    this.composerInput.focus(); cx.notify();
+  }
+
+  closeComposer() {
+    this.sel = null; this.editing = null; this.composerText = "";
+    this.composerInput.set_value("");
+  }
+
+  selLabel() {
+    const d = this.sel && makeDraft({ id: "", path: "", rows: this.rows, from: this.sel.from, to: this.sel.to, body: "x" });
+    return d ? lineLabel(d) : "";
+  }
+
+  addComment(cx) {
+    const f = this.files[this.fileIdx], body = this.composerText;
+    if (!body.trim() || !(this.editing || (f && this.sel))) return;
+    if (this.editing) {
+      const d = this.list().find((x) => x.id === this.editing);
+      if (d) d.body = body.trim();
+    } else {
+      const d = makeDraft({ id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, path: f.path, rows: this.rows, from: this.sel.from, to: this.sel.to, body });
+      if (!d) return;
+      this.list().push(d);
+    }
+    this.saveDrafts(); this.closeComposer(); this.refreshMarks(); cx.notify();
+  }
+
+  deleteDraft(id, cx) {
+    this.drafts = this.list().filter((d) => d.id !== id);
+    if (this.editing === id) this.closeComposer();
+    this.saveDrafts(); this.refreshMarks(); cx.notify();
+  }
+
+  // Click on a draft in the list: show its file, scroll to its lines, and open it for editing.
+  jumpTo(d, cx) {
+    const idx = this.files.findIndex((f) => f.path === d.path);
+    if (idx < 0) { this.note = "這則留言的檔案不在這個範圍裡"; cx.notify(); return; }
+    this.pendingJump = d.id;
+    if (idx === this.fileIdx && this.rows.length) { this.applyJump(); cx.notify(); } else { this.pick(idx, cx); cx.notify(); }
+  }
+
+  applyJump() {
+    const d = this.pendingJump && this.list().find((x) => x.id === this.pendingJump);
+    this.pendingJump = null;
+    if (!d) return;
+    const loc = locate(this.rows, d);
+    this.editing = d.id; this.composerText = d.body; this.composerInput.set_value(d.body);
+    if (loc) { this.sel = { from: loc.from, to: loc.to, anchor: loc.from }; this.rowList.scroll_to_item(loc.from, "center"); }
+  }
+
+  // The whole review, to one agent (the send dialog picks it).
+  submit() {
+    const drafts = this.list();
+    if (!drafts.length) return;
+    const base = this.info?.base ? `, base ${this.info.base}` : "";
+    const text = reviewMessage({ root: this.root, on: this.on, scopeWords: `${SCOPE_WORDS[this.scope]}${this.scope === "branch" ? base : ""}`, drafts });
+    openOverlay({ mod: "review", kind: "dialog", width: 760, height: 680, props: { send: { title: `送出審查（${drafts.length} 則留言）`, text, ask: false, root: this.root, on: this.on, count: drafts.length } } });
+  }
+
+  // Right-click: ask an agent about these lines (the selection if the row is in it, else the row or its hunk).
+  askAbout(i) {
+    const row = this.rows[i], f = this.files[this.fileIdx], s = this.sel;
+    if (!row || !f) return;
+    const range = s && i >= s.from && i <= s.to ? s : row.kind === "@" ? this.hunkRange(i) : { from: i, to: i };
+    const lines = this.rows.slice(range.from, range.to + 1);
+    openOverlay({ mod: "review", kind: "dialog", width: 760, height: 640, props: { send: { title: `問 agent · ${f.path}`, text: askMessage({ root: this.root, on: this.on, path: f.path, rows: lines }), ask: true, root: this.root, on: this.on } } });
+  }
+
   cyclePalette() {
     this.paletteId = nextPaletteId(this.paletteId);
     savePaletteId(PALETTE_KEY, this.paletteId);
@@ -168,8 +302,12 @@ export default class Review extends View {
   onKey(e, cx) {
     const k = e.key, ctrl = e.modifiers?.control;
     if (this.typing) {
-      // Keys belong to the filter box; Escape hands the keyboard back to the dialog.
-      if (k === "escape") { this.typing = false; this.handle.focus(); cx.stop_propagation(); cx.notify(); }
+      // Keys belong to the text box; Escape hands the keyboard back to the dialog (and drops an empty new comment).
+      if (k === "escape") {
+        this.typing = false; this.handle.focus();
+        if (this.sel && !this.editing && !this.composerText.trim()) this.closeComposer();
+        cx.stop_propagation(); cx.notify();
+      }
       return;
     }
     if (k === "escape" || k === "q") closeOverlay(this.overlay);
@@ -182,7 +320,14 @@ export default class Review extends View {
   }
 
   render(cx) {
-    const t = theme(), files = this.files, cur = files[this.fileIdx];
+    if (this.dialog) return this.dialog.render(cx);
+    // A review was sent from the send dialog: its comments are spent, and this dialog has done its job.
+    const sent = shared("review.sent");
+    if (sent?.at && sent.at !== this.sentAt) {
+      this.sentAt = sent.at;
+      if (!sent.ask) { this.drafts = []; this.saveDrafts(); this.refreshMarks(); cx.timer.after(1, () => closeOverlay(this.overlay)); }
+    }
+    const t = theme(), files = this.files, cur = files[this.fileIdx], drafts = this.list();
     const c = diffColors(this.paletteId, t), colors = syntaxColors(t);
     const add = files.reduce((n, f) => n + f.add, 0), del = files.reduce((n, f) => n + f.del, 0);
     const name = (this.root ?? "").split("/").filter(Boolean).pop() ?? "";
@@ -200,6 +345,7 @@ export default class Review extends View {
         .when(Boolean(this.info?.branch), (e) => e.child(chip(this.info.branch, t.ansi2)))
         .when(this.scope === "branch" && Boolean(this.info?.base), (e) => e.child(chip(`base ${this.info.base}`, t.ansi4)))
         .child(div().flex_1())
+        .child(button("rv-submit", drafts.length ? `送出審查 · ${drafts.length}` : "送出審查", () => this.submit(), drafts.length > 0))
         .child(button("rv-refresh", "↻ r", (_e, cx) => this.refresh(cx)))
         .child(button("rv-close", "✕ Esc", () => closeOverlay(this.overlay))))
       .child(h_flex().gap(6).items_center()
@@ -248,8 +394,29 @@ export default class Review extends View {
           })
           .size_full())
         .child(Scrollbar.vertical("rv-files").viewport_from_layout().absolute().inset_0()))
-      .child(div().flex_none().px(12).py(6).border_t(1).border_color(t.border).text_size(11).text_color(t.dim).child("j / k 切換檔案 · 1 2 3 切換範圍 · r 重新讀取 · Esc 關閉"));
+      .when(drafts.length > 0, (e) => e.child(v_flex().id("rv-drafts").flex_none().max_h(210).overflow_y_scrollbar().border_t(1).border_color(t.border)
+        .child(div().px(12).py(6).text_size(11).font_semibold().text_color(t.muted).child(`待送出留言 (${drafts.length})`))
+        .children(drafts.map((d) => h_flex().id(`rv-d-${d.id}`).flex_none().h(40).px(12).gap(8).items_center().cursor_pointer()
+          .bg(this.editing === d.id ? t.selected : "#00000000").hover((s) => s.bg(t.hover))
+          .on_click((_e, cx) => this.jumpTo(d, cx))
+          .child(v_flex().flex_1().min_w(0)
+            .child(div().truncate().text_size(11.5).font_family(MONO).text_color(t.muted).child(`${d.path}:${lineLabel(d)}${this.stale.has(d.id) ? "（過期）" : ""}`))
+            .child(div().truncate().text_size(12.5).child(d.body.split("\n")[0])))
+          .child(div().id(`rv-dd-${d.id}`).flex_none().px(6).py(2).rounded(4).text_color(t.dim).cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground))
+            .tooltip("刪除這則留言").on_click((_e, cx) => { cx.stop_propagation(); this.deleteDraft(d.id, cx); }).child("✕"))))))
+      .child(div().flex_none().px(12).py(6).border_t(1).border_color(t.border).text_size(11).text_color(t.dim).child("j / k 切換檔案 · 點程式碼行留言 · 右鍵問 agent · Esc 關閉"));
 
+    const editingDraft = this.editing ? drafts.find((d) => d.id === this.editing) : null;
+    const canAdd = Boolean(this.composerText.trim());
+    const composer = v_flex().flex_none().gap(6).px(14).py(10).border_t(1).border_color(t.border).bg(t.surface)
+      .child(h_flex().gap(8).items_center()
+        .child(div().flex_1().min_w(0).truncate().text_size(12).font_semibold()
+          .child(`${editingDraft ? "編輯留言" : "留言"} · ${editingDraft ? `${editingDraft.path}:${lineLabel(editingDraft)}${this.stale.has(editingDraft.id) ? "（過期）" : ""}` : `${cur?.path ?? ""}:${this.selLabel()}`}`))
+        .child(button("rv-c-cancel", "取消", (_e, cx) => { this.closeComposer(); cx.notify(); }))
+        .child(button("rv-c-add", editingDraft ? "更新" : "加入留言", canAdd ? (_e, cx) => this.addComment(cx) : () => {}, canAdd)))
+      .child(div().rounded(6).border_1().border_color(this.typing ? t.accent : t.border).bg(t.input ?? t.background).px(10).py(6)
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .child(Textarea.new(this.composerInput).w_full().text_size(13).text_color(t.foreground)));
     const diffPane = v_flex().flex_1().min_w(0).h_full().bg(t.background)
       .child(h_flex().flex_none().h(36).px(14).gap(10).items_center().border_b(1).border_color(t.border).bg(t.surface).text_size(12)
         .child(div().flex_1().min_w(0).truncate().font_family(MONO).font_semibold().text_color(t.foreground).child(cur?.path ?? ""))
@@ -262,8 +429,17 @@ export default class Review extends View {
         .child(div().id("rv-diff-x").size_full().overflow_x_scrollbar()
           .child(div().w_full().min_w(this.diffWidth).h_full().child(
             v_virtual_list("rv-rows", this.rows.length, DIFF_ROW_H, (i) => String(i),
-              (range) => this.rows.slice(range.start, range.end).map((row) => diffRow(row, t, c, colors, DIFF_ROW_H))).size_full())))
-        .child(Scrollbar.vertical("rv-rows").viewport_from_layout().absolute().inset_0()));
+              (range) => this.rows.slice(range.start, range.end).map((row, k) => {
+                const i = range.start + k, inSel = this.sel && i >= this.sel.from && i <= this.sel.to;
+                return diffRow(row, t, c, colors, DIFF_ROW_H).when(Boolean(inSel), (e) => e.bg(t.selected)).when(this.marks.has(i), (e) => e.border_r(3).border_color(t.accent));
+              }))
+            .track_scroll(this.rowList)
+            // A virtual list's rows may not carry handlers: a click names its row by key.
+            .on_item_click((key, cx) => this.clickRow(Number(key), cx))
+            .on_item_secondary_click((key, _ev, _cx) => this.askAbout(Number(key)))
+            .size_full())))
+        .child(Scrollbar.vertical("rv-rows").viewport_from_layout().absolute().inset_0()))
+      .when(Boolean(this.sel || this.editing) && Boolean(cur), (e) => e.child(composer));
 
     return v_flex().id("review").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13.5)
       .track_focus(this.handle).on_key_down((e, cx) => this.onKey(e, cx))
