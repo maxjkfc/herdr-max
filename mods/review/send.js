@@ -53,9 +53,10 @@ export class SendDialog {
   // No agent is running: start one in a new tab with the message as its first task.
   start(prog, cx) {
     if (!this.ready()) return;
-    const space = spaces().find((s) => s.folder && (this.root === s.folder || this.root.startsWith(`${s.folder}/`)));
+    // No `space`: the tab opens in the space being looked at (where review was opened from), with `folder` as its cwd.
+    // Naming a space by folder match failed with "no space <id>" when the match was one tab.new can't resolve.
     this.sending = true; cx.notify();
-    run("tab.new", { name: "審查", folder: this.root, ...(space ? { space: space.id } : {}), argv: prog.run, task: this.message() });
+    run("tab.new", { name: "審查", folder: this.root, argv: prog.run, task: this.message() });
     this.sent(prog.name, cx);
   }
 
