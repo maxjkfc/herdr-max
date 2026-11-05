@@ -154,7 +154,7 @@ export default class Review extends View {
     this.fileIdx = idx; this.rows = []; this.diffWidth = 0; this.closeComposer();
     const f = this.files[idx];
     if (!f) return;
-    const key = `${this.scope}|${f.path}`, hit = this.cache.get(key);
+    const root = this.root, key = `${this.scope}|${f.path}`, hit = this.cache.get(key);
     if (hit) { this.show(f, hit); return; }
     this.loadingFile = true;
     cx.spawn(async (cx) => {
@@ -166,10 +166,11 @@ export default class Review extends View {
         if (r.code > 1 || (r.code === 1 && !f.untracked)) throw new Error(r.stderr.trim() || "git diff 失敗");
         const parsed = parseDiff(r.stdout)[0] ?? { path: f.path, add: 0, del: 0, binary: f.binary, rows: [] };
         if (f.untracked) { f.add = parsed.add; f.binary = parsed.binary; }
+        if (this.root !== root) return;   // the worktree was switched while git ran: this diff isn't the new one's
         this.cache.set(key, parsed);
         if (this.files[this.fileIdx] === f) this.show(f, parsed);
-      } catch (e) { if (this.files[this.fileIdx] === f) this.error = String(e?.message ?? e); }
-      finally { this.loadingFile = false; cx.notify(); }
+      } catch (e) { if (this.root === root && this.files[this.fileIdx] === f) this.error = String(e?.message ?? e); }
+      finally { if (this.root === root) this.loadingFile = false; cx.notify(); }
     });
   }
 
@@ -412,6 +413,7 @@ export default class Review extends View {
     const message = this.message.trim(), root = this.root;
     if (!message || this.committing || !this.dirty) return;
     this.committing = true; this.note = null;
+    let failed = false;
     cx.spawn(async (cx) => {
       try {
         for (const args of [["add", "-A"], ["commit", "-m", message]]) {
@@ -419,8 +421,9 @@ export default class Review extends View {
           if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim());
         }
         if (this.root === root) { this.message = ""; this.commitInput.set_value(""); }
-      } catch (e) { this.note = `提交失敗：${String(e?.message ?? e).slice(0, 300)}`; }
-      finally { this.committing = false; if (this.root === root) this.refresh(cx); cx.notify(); }
+      } catch (e) { this.note = `提交失敗：${String(e?.message ?? e).slice(0, 300)}`; failed = true; }
+      // A failed commit changed nothing to show, and a refresh would clear the note that says why.
+      finally { this.committing = false; if (this.root === root && !failed) this.refresh(cx); cx.notify(); }
     });
     cx.notify();
   }
