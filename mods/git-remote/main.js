@@ -16,8 +16,8 @@ const TABS = {
   actions: { label: "CI Actions", short: "CI", icon: "actions" },
 };
 const STATES = {
-  issues: [["open", "issue-open", "開啟"], ["closed", "check", "已關閉"]],
-  prs: [["open", "pr-open", "開啟"], ["merged", "pr-merged", "已合併"], ["closed", "pr-closed", "已關閉"]],
+  issues: [["open", "issue-open", "Open"], ["closed", "check", "Closed"]],
+  prs: [["open", "pr-open", "Open"], ["merged", "pr-merged", "Merged"], ["closed", "pr-closed", "Closed"]],
 };
 const METHODS = [["merge", "Merge", "pr-merged"], ["squash", "Squash", "commit"], ["rebase", "Rebase", "branch"]];
 
@@ -342,21 +342,21 @@ export default class GitHub extends View {
       .child(h_flex().gap(6).flex_wrap().items_center().text_size(12).text_color(t.muted)
         .when(Boolean(item.headRefName), (e) => e.child(div().px(6).py(1).rounded(4).border_1().border_color(`${p.link}55`).bg(`${p.link}16`).text_color(p.link).font_family("JetBrains Mono").text_size(11.5).max_w(190).truncate().child(`${item.headRefName} → ${item.baseRefName}`)))
         .when(item.additions !== undefined, (e) => e.child(div().text_color(p.open).child(`+${item.additions}`)).child(div().text_color(p.closed).child(`−${item.deletions}`)))
-        .when(conflict, (e) => e.child(div().px(5).rounded(4).border_1().border_color(`${p.closed}88`).text_color(p.closed).text_size(11).child("有衝突")))
-        .when(item.isDraft, (e) => e.child(div().px(5).rounded(4).border_1().border_color(t.border).text_color(t.muted).text_size(11).child("草稿")))
+        .when(conflict, (e) => e.child(div().px(5).rounded(4).border_1().border_color(`${p.closed}88`).text_color(p.closed).text_size(11).child("Conflicts")))
+        .when(item.isDraft, (e) => e.child(div().px(5).rounded(4).border_1().border_color(t.border).text_color(t.muted).text_size(11).child("Draft")))
         .child(div().flex_1())
         .child(div().text_size(11.5).text_color(t.dim).child(ago(item.updatedAt))))
       // Row 3: Always-visible action pills
       .child(h_flex().gap(6).pt(2).items_center()
-        .child(button(`pr-diff-${item.number}`, `⇄ 檢視 Diff${item.changedFiles ? ` (${item.changedFiles})` : ""}`, t, (_e, cx) => { cx.stop_propagation(); this.open(item, "pr"); }, { small: true }))
-        .when(isOpen, (e) => e.child(button(`pr-m-btn-${item.number}`, mergeExpanded ? "取消" : "⑂ 合併…", t, (_e, cx) => {
+        .child(button(`pr-diff-${item.number}`, `⇄ Diff${item.changedFiles ? ` (${item.changedFiles})` : ""}`, t, (_e, cx) => { cx.stop_propagation(); this.open(item, "pr"); }, { small: true }))
+        .when(isOpen, (e) => e.child(button(`pr-m-btn-${item.number}`, mergeExpanded ? "Cancel" : "⑂ Merge…", t, (_e, cx) => {
           cx.stop_propagation();
           this.inlineMergeNum = mergeExpanded ? null : item.number;
           cx.notify();
         }, { small: true, primary: !mergeExpanded, color: p.open, enabled: !blocked })))
         .when(!isOpen, (e) => e.child(div().text_size(11.5).text_color(color).child(stateLabel)))
         .child(div().flex_1())
-        .child(button(`pr-ag-${item.number}`, "派 Agent", t, (_e, cx) => { cx.stop_propagation(); this.startAgent(item, "pr", cx); }, { small: true, invisible: true, icon: "agent" })))
+        .child(button(`pr-ag-${item.number}`, "Agent", t, (_e, cx) => { cx.stop_propagation(); this.startAgent(item, "pr", cx); }, { small: true, invisible: true, icon: "agent" })))
       // Inline 1-click Merge Method strip when expanded
       .when(mergeExpanded && !blocked, (e) => e.child(h_flex().pt(4).gap(6).items_center().border_t(1).border_color(t.border)
         .children(METHODS.map(([m, label, ic]) => button(`pr-im-${item.number}-${m}`, label, t, (_e, cx) => {
@@ -393,12 +393,12 @@ export default class GitHub extends View {
       .when(item.labels?.length > 0, (e) => e.child(h_flex().gap(5).flex_wrap().items_center().children(item.labels.slice(0, 4).map((l) => labelChip(l, t, true)))))
       // Row 3: Direct Worktree & Agent action pills
       .child(h_flex().gap(6).pt(2).items_center()
-        .child(button(`iss-wt-${item.number}`, bound ? "🌱 進入 Worktree" : "🌱 開 Worktree", t, (_e, cx) => {
+        .child(button(`iss-wt-${item.number}`, bound ? "🌱 Go to Worktree" : "🌱 New Worktree", t, (_e, cx) => {
           cx.stop_propagation();
           if (bound) run("space.select", { id: bound.space.id });
           else this.openWorktree(item);
         }, { small: true, primary: true, color: p.link }))
-        .child(button(`iss-ag-${item.number}`, "派 Agent", t, (_e, cx) => {
+        .child(button(`iss-ag-${item.number}`, "Agent", t, (_e, cx) => {
           cx.stop_propagation();
           this.startAgent(item, "issue", cx);
         }, { small: true, color: p.open, icon: "agent" }))
@@ -416,7 +416,7 @@ export default class GitHub extends View {
       .child(h_flex().gap(8).items_start()
         .child(div().pt(2).child(glyphOf(g, 15, color, t)))
         .child(div().flex_1().min_w(0).font_semibold().text_size(14).child(r.displayTitle))
-        .when(failed, (e) => e.child(button(`rerun-${r.databaseId}`, "↻ 重跑", t, (_e, cx) => {
+        .when(failed, (e) => e.child(button(`rerun-${r.databaseId}`, "↻ Re-run", t, (_e, cx) => {
           cx.stop_propagation();
           cx.spawn(async (cx) => {
             try { await gh(["run", "rerun", String(r.databaseId), "-R", r.repo, "--failed"]); notify({ title: "已觸發重新執行", body: r.workflowName, level: "success" }); this.refresh(cx); }
@@ -452,12 +452,12 @@ export default class GitHub extends View {
         .when(tab === "actions", (el) => el
           .child(h_flex().id("ci-all").h(26).px(8).items_center().rounded(5).cursor_pointer().text_size(12)
             .bg(!f.failing ? t.selected : "#00000000").text_color(!f.failing ? t.foreground : t.muted)
-            .on_click((_e, cx) => this.setFilter("actions", { failing: false }, cx)).child("全部"))
+            .on_click((_e, cx) => this.setFilter("actions", { failing: false }, cx)).child("All"))
           .child(h_flex().id("ci-fail").h(26).px(8).items_center().rounded(5).cursor_pointer().text_size(12)
             .bg(f.failing ? t.selected : "#00000000").text_color(f.failing ? p.closed : t.muted)
-            .on_click((_e, cx) => this.setFilter("actions", { failing: true }, cx)).child("只看失敗")))
+            .on_click((_e, cx) => this.setFilter("actions", { failing: true }, cx)).child("Failed")))
         .child(div().flex_1())
-        .when(tab === "issues" && Boolean(repo) && !all, (x) => x.child(button("new-issue", "+ 新 Issue", t, () => this.create(), { small: true, color: p.open })))
+        .when(tab === "issues" && Boolean(repo) && !all, (x) => x.child(button("new-issue", "+ New issue", t, () => this.create(), { small: true, color: p.open })))
         .child(e.loading ? div().px(6).child(spinner(13, t.muted)) : button("refresh", "", t, (_e, cx) => this.refresh(cx), { icon: "refresh", small: true, invisible: true, tooltip: "重新整理" })))
       .child(h_flex().px(10).pb(8).gap(6).items_center()
         .when(this.logins.length > 1, (x) => {
@@ -477,7 +477,7 @@ export default class GitHub extends View {
         .when(tab === "issues" || tab === "prs", (x) => x.child(h_flex().id(`mine-${tab}`).h(30).px(8).gap(4).items_center().rounded(6).text_size(12).cursor_pointer()
           .border_1().border_color(f.mine ? p.link : t.border).bg(f.mine ? t.selected : t.background).text_color(f.mine ? p.link : t.muted)
           .on_click((_e, cx) => this.setFilter(tab, { mine: !f.mine }, cx))
-          .child(tab === "prs" ? "我的 PR" : "指派給我"))));
+          .child(tab === "prs" ? "My PRs" : "Assigned to me"))));
   }
 
   empty(tab, e, t, filtered) {
@@ -490,7 +490,7 @@ export default class GitHub extends View {
       icon: "issue-open",
       title: f.state === "open" ? "目前沒有開啟的 Issue" : "沒有已關閉的 Issue",
       body: f.state === "open" ? "可建立新 Issue，並直接從卡片一鍵開啟 Worktree 與派發 Agent。" : "",
-      actions: repo && f.state === "open" && !this.all() ? [button("new-iss-empty", "+ 建立 Issue", t, () => this.create(), { primary: true })] : [],
+      actions: repo && f.state === "open" && !this.all() ? [button("new-iss-empty", "+ New issue", t, () => this.create(), { primary: true })] : [],
     });
     return blankslate(t, { icon: "actions", title: f.failing ? "沒有失敗的 CI 紀錄" : "尚無 GitHub Actions 紀錄", body: "" });
   }

@@ -141,17 +141,21 @@ export default class GitHubSwitcher extends View {
         .border_1().border_color(t.border).bg(t.surface)
         .text_size(12).font_semibold().text_color(s?.repo ? t.foreground : t.dim)
         .when(Boolean(s?.repo), (e) => e.cursor_pointer().hover((x) => x.bg(t.hover)))
-        .tooltip("審查目前的變更（唯讀）：未提交、最後一個 commit、對 base")
+        .tooltip("審查目前的變更：未提交、最後一個 commit、對 base；可留言送給 agent、也能提交")
         .on_click(() => { if (s?.repo) openOverlay({ mod: "review", kind: "dialog", width: 0.88, height: 0.92, props: { root: s.root, on: s.on } }); })
-        .child("審查"))
+        .child(h_flex().gap(5).items_center()
+          .child(svg("mods/git-hub/icons/eye.svg").size(14).flex_none().text_color(s?.repo ? t.ansi5 : t.dim))
+          .child("Review")))
       .child(div().id("git-pull").h(24).px(10).flex_none().flex().items_center().rounded(6)
         .border_1().border_color(needs ? t.accent : t.border)
         .bg(needs ? t.selected : t.surface)
         .text_size(12).font_semibold().text_color(can ? t.foreground : t.dim)
         .when(can, (e) => e.cursor_pointer().hover((x) => x.bg(t.hover)))
-        .tooltip("git pull --ff-only：只做快轉，不會產生 merge commit")
+        .tooltip(this.busy ? "拉取中…" : "拉取（git pull --ff-only）：只做快轉，不會產生 merge commit")
         .on_click((_e, cx) => this.pull(cx))
-        .child(this.busy ? "拉取中…" : "↓ 拉取"));
+        .child(h_flex().gap(5).items_center()
+          .child(this.busy ? svg("mods/workspace-chrome/spinner.svg").size(14).flex_none().text_color(t.muted).spin(900) : svg("mods/git-hub/icons/arrow-down.svg").size(14).flex_none().text_color(can ? t.accent : t.dim))
+          .child("Pull")));
   }
 
   render(cx) {

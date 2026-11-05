@@ -40,6 +40,7 @@ async function directory(path, on) {
   return out;
 }
 
+const ico = (name, size, color) => svg(`mods/files-plus/icons/${name}.svg`).size(size).flex_none().when(Boolean(color), el => el.text_color(color));
 // `open` is on every Mac and finds the apps by name; a file is revealed (selected) in Finder, a folder is opened.
 // A plain promise, not cx.spawn: the right-click menu closes its own view right after the click.
 function openPath(app, abs, isFile) {
@@ -196,13 +197,14 @@ export default class Files extends View {
 
   renderMenu(t) {
     const m = this.menu;
-    const item = (id, label, on_click) => h_flex().id(id).h(34).px(10).items_center().rounded(6).cursor_pointer()
-      .hover(s => s.bg(t.hover)).on_click((_e, cx) => { on_click(cx); closeOverlay(m.overlay); }).child(div().text_size(13).child(label));
+    const item = (id, icon, color, label, on_click) => h_flex().id(id).h(34).px(10).gap(8).items_center().rounded(6).cursor_pointer()
+      .hover(s => s.bg(t.hover)).on_click((_e, cx) => { on_click(cx); closeOverlay(m.overlay); })
+      .child(ico(icon, 14, color)).child(div().text_size(13).child(label));
     return v_flex().id("files-menu").size_full().p(4).bg(t.popover).text_color(t.foreground)
-      .child(item("fm-finder", m.isFile ? "在 Finder 顯示" : "用 Finder 開啟", () => openPath("finder", m.abs, m.isFile)))
-      .child(item("fm-zed", "用 Zed 開啟", () => openPath("zed", m.abs, m.isFile)))
-      .child(item("fm-chrome", "用 Chrome 開啟", () => openPath("chrome", m.abs, m.isFile)))
-      .child(item("fm-copy", "複製路徑", cx => cx.write_to_clipboard(m.abs)));
+      .child(item("fm-finder", "folder", t.ansi3, m.isFile ? "Reveal in Finder" : "Open in Finder", () => openPath("finder", m.abs, m.isFile)))
+      .child(item("fm-zed", "code", t.ansi4, "Open in Zed", () => openPath("zed", m.abs, m.isFile)))
+      .child(item("fm-chrome", "globe", t.ansi6, "Open in Chrome", () => openPath("chrome", m.abs, m.isFile)))
+      .child(item("fm-copy", "copy", t.muted, "Copy path", cx => cx.write_to_clipboard(m.abs)));
   }
 
   rows(prefix, depth, out, t) {
@@ -227,9 +229,10 @@ export default class Files extends View {
     if (key() !== this.context?.key) this.refresh(cx);
     const t = theme();
     const target = this.target(), local = Boolean(this.root) && !this.on;
-    const open = (id, label, app) => div().id(id).h(24).px(9).flex().items_center().flex_none().rounded(6).border_1().border_color(t.border)
+    // An icon in the app's color and its name (apps are named the same in every language); the tooltip has the rest.
+    const open = (id, label, app, icon, color) => div().id(id).h(24).px(8).gap(5).flex().items_center().flex_none().rounded(6).border_1().border_color(t.border)
       .text_size(12).text_color(t.muted).cursor_pointer().hover(s => s.bg(t.hover).text_color(t.foreground))
-      .tooltip(`用 ${label} 開啟 ${target.rel || "這個資料夾"}`).on_click((_e, cx) => this.openWith(app, cx)).child(label);
+      .tooltip(`用 ${label} 開啟 ${target.rel || "這個資料夾"}`).on_click((_e, cx) => this.openWith(app, cx)).child(ico(icon, 14, color)).child(label);
     return v_flex().id("files").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
       .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
         .when(Boolean(this.file), el => el.child(div().id("files-back").w(20).cursor_pointer().text_color(t.muted).on_click((_e, cx) => { this.show(null); cx.notify(); }).child("←")))
@@ -237,10 +240,10 @@ export default class Files extends View {
         .child(div().flex_1().min_w(0).truncate().text_right().text_size(12).text_color(t.dim).child(this.file ?? this.root?.split(/[\\/]/).pop() ?? "")))
       // Open the file being viewed, else the folder last clicked, else the root: in Finder, Zed or Chrome (this computer only).
       .when(local, el => el.child(h_flex().flex_none().h(36).px(14).gap(6).items_center().border_b(1).border_color(t.border)
-        .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim).child(target.rel || "(專案根目錄)"))
-        .child(open("files-open-finder", "Finder", "finder"))
-        .child(open("files-open-zed", "Zed", "zed"))
-        .child(open("files-open-chrome", "Chrome", "chrome"))))
+        .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim).child(target.rel || ico("folder", 14, t.ansi3)))
+        .child(open("files-open-finder", "Finder", "finder", "folder", t.ansi3))
+        .child(open("files-open-zed", "Zed", "zed", "code", t.ansi4))
+        .child(open("files-open-chrome", "Chrome", "chrome", "globe", t.ansi6))))
       .when(!this.file, el => el.child(v_flex().id("files-tree").flex_1().min_h(0).overflow_y_scrollbar().p(6).children(this.rows("", 0, [], t))
         .when(Boolean(this.error) || !this.entries.get("")?.length, el => el.child(div().p(8).text_size(12).text_color(t.dim).child(this.error || (this.loading ? "Loading files…" : this.root ? "No files" : "No folder"))))
         .when(this.limited, el => el.child(div().p(8).text_size(11).text_color(t.dim).child("File list limited to 500 entries per folder and 5,000 total")))))
