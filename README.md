@@ -51,6 +51,7 @@ A customized [Herdr](https://herdr.dev) desktop layout (`main-custom`) and mod s
 - Ref chips per commit: `HEAD`/current branch, local branches, `origin/*` remotes, tags.
 - Header toggle switches between **All branches** (local + remote + tags) and **HEAD only**; `↻` forces a refresh. The graph also auto-refreshes every 6s when refs change.
 - Click a commit to open its detail drawer: hash, author, date, message body, changed files (first-parent diff for merges).
+- **Right-click a commit → menu**: **顯示詳細資訊** opens an 88% × 92% dialog like the PR one: header (hash, ref chips, subject, author, date, parents), the full message, the changed files as a left column (`+N −N` each, `j`/`k` to switch) and the selected file's diff on the right (first-parent diff for merges, root diff for the first commit; the **配色** button cycles the diff colors). The menu also copies the full hash or the subject.
 - Lives inside the unified **Git** right-hand panel (`Changes` | `Graph` | `Remote`). The tab bar (`tabs-plus`) keeps a clean 2-button layout: **Files** and **Git**.
 
 ### 7. `git-hub` & `git-remote` — Unified Git Panel (`Changes | Graph | Remote`) & Issue-to-Worktree (`Ctrl+A` → `o`)
