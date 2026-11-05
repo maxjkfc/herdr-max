@@ -51,6 +51,7 @@ export default class GitHub extends View {
     if (pr.agentMenu) { this.agentMenu = new AgentMenu(pr.agentMenu, pr.overlay, cx); return; }
     if (pr.copyMenu) { this.copying = { items: pr.copyMenu, overlay: pr.overlay }; return; }
     if (pr.picker) { this.initPicker(pr.picker, pr.overlay, cx); return; }
+    if (pr.accountMenu) { this.accountMenu = { ...pr.accountMenu, overlay: pr.overlay }; return; }
     if (pr.create) { this.initCreate(pr.create, pr.overlay, cx); return; }
 
     this.handle = cx.focus_handle();
@@ -67,7 +68,7 @@ export default class GitHub extends View {
     this.input.on("change", (_e, cx) => { this.query = this.input.value(); this.limit = PAGE; this.selectedIdx = 0; cx.notify(); });
     this.input.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
     this.input.on("blur", (_e, cx) => { this.typing = false; cx.notify(); });
-    this.changedAt = shared("git-remote.changed")?.at; this.pickedAt = shared("git-remote.pick")?.at;
+    this.changedAt = shared("git-remote.changed")?.at; this.pickedAt = shared("git-remote.pick")?.at; this.acctAt = shared("git-remote.pick-account")?.at;
     this.focusAt = shared("git.focus")?.at;
     this.sharedTab = shared("git-remote.tab");
 
@@ -141,14 +142,20 @@ export default class GitHub extends View {
     if (!this.account || this.accountUser !== want) { this.accountUser = want; this.account = await account(); }
   }
 
-  // Chip in the filter bar: auto → each logged-in account → auto.
-  cycleUser(cx) {
-    const { cwd, space } = this.where();
-    if (!cwd) return;
-    const options = ["", ...this.logins.map((l) => l.login)], dir = spaces().find((s) => s.id === space)?.folder ?? cwd;
-    this.chosen[dir] = options[(options.indexOf(this.chosenUser(cwd) ?? "") + 1) % options.length];
+  // Remember the account chosen for a folder ("" = auto) and reload as it.
+  chooseUser(dir, user, cx) {
+    this.chosen[dir] = user;
     keep("accounts", this.chosen);
     cx.spawn(async (cx) => { await this.syncUser(); this.refresh(cx); cx.notify(); });
+  }
+
+  // The account dropdown: a popup listing "auto" and every logged-in account, the current pick ticked.
+  openAccountMenu() {
+    const { cwd, space } = this.where();
+    if (!cwd) return;
+    const dir = spaces().find((s) => s.id === space)?.folder ?? cwd;
+    openOverlay({ mod: "git-remote", kind: "popup", width: 280, height: 64 + (this.logins.length + 1) * 46, at: "pointer",
+      props: { accountMenu: { dir, picked: this.chosenUser(cwd) ?? "", declared: this.declared[cwd] ?? null, logins: this.logins } } });
   }
 
   async follow() {
@@ -454,10 +461,11 @@ export default class GitHub extends View {
           const how = picked ? "手動指定" : cwd && this.declared[cwd] ? "由 .envrc 指定" : "gh 目前帳號";
           return x.child(h_flex().id("acct").flex_none().max_w(120).h(30).px(8).gap(5).items_center().rounded(6).border_1().border_color(t.border).bg(t.background)
             .text_size(12).text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover))
-            .tooltip(`GitHub 帳號：${this.account?.login ?? "?"}（${how}）\n點擊切換：自動 → 各個已登入帳號`)
-            .on_click((_e, cx) => this.cycleUser(cx))
+            .tooltip(`GitHub 帳號：${this.account?.login ?? "?"}（${how}）\n點擊選擇帳號`)
+            .on_click(() => this.openAccountMenu())
             .child(glyph("user", 12, t.muted))
-            .child(div().min_w(0).truncate().child(this.account?.login ?? "?")));
+            .child(div().min_w(0).truncate().child(this.account?.login ?? "?"))
+            .child(glyph("chevron-down", 11, t.dim)));
         })
         .child(h_flex().id("filter").flex_1().min_w(0).h(30).px(9).gap(6).items_center().rounded(6).bg(t.background).border_1().border_color(this.typing ? t.accent : t.border).cursor_text()
           .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
@@ -579,6 +587,7 @@ export default class GitHub extends View {
     if (this.agentMenu) return this.agentMenu.render(cx, t);
     if (this.copying) return renderCopyMenu(this.copying.items, this.copying.overlay, t);
     if (this.picker) return this.renderPicker(t);
+    if (this.accountMenu) return this.renderAccountMenu(t);
     if (this.form) return this.renderCreate(t);
 
     const extTab = shared("git-remote.tab");
@@ -605,6 +614,8 @@ export default class GitHub extends View {
     if (changed?.at && changed.at !== this.changedAt) { this.changedAt = changed.at; this.refresh(cx, true); }
     const picked = shared("git-remote.pick");
     if (picked?.at && picked.at !== this.pickedAt) { this.pickedAt = picked.at; this.setPin(picked.space, picked.value, cx); }
+    const acct = shared("git-remote.pick-account");
+    if (acct?.at && acct.at !== this.acctAt) { this.acctAt = acct.at; this.chooseUser(acct.dir, acct.user, cx); }
 
     const other = this.foreign();
     if (other && !this.scope()) return this.shell(t).child(blankslate(t, { icon: "repo", title: `偵測到 ${other.label}，目前僅支援 GitHub`,
@@ -616,7 +627,7 @@ export default class GitHub extends View {
     if (a.state !== "ready") return this.shell(t).child(blankslate(t, { icon: "key", title: a.state === "logged_out" ? "尚未登入 GitHub CLI" : "無法連線至 GitHub", body: a.state === "logged_out" ? "請在終端機執行 gh auth login 完成驗證。" : a.detail, code: a.state === "logged_out" ? "gh auth login" : null,
       actions: [button("login", "開新 Tab 登入", t, () => run("terminal.open", { argv: ["sh", "-c", 'gh auth login; exec "${SHELL:-sh}"'], place: "tab" }), { icon: "terminal" }),
         button("recheck", "重新檢查", t, (_e, cx) => { this.account = null; cx.spawn(async (cx) => { this.account = await account(); this.refresh(cx); cx.notify(); }); cx.notify(); }, { icon: "refresh" }),
-        ...(this.logins.length > 1 ? [button("switch-account", "切換帳號", t, (_e, cx) => this.cycleUser(cx), { icon: "user" })] : [])] }));
+        ...(this.logins.length > 1 ? [button("switch-account", "選擇帳號", t, () => this.openAccountMenu(), { icon: "user" })] : [])] }));
     if (!this.scope()) return this.shell(t).child(blankslate(t, { icon: "repo", title: "此目錄沒有綁定 GitHub Repo", body: "將游標移至含 GitHub remote 的專案終端機，或手動選擇一個專案。",
       actions: [button("pick", "選擇 Repo", t, () => this.openPicker(), { icon: "repos", primary: true }),
         button("all-repos", "檢視所有 Repo", t, (_e, cx) => this.setPin(this.where().space, "all", cx), { icon: "repos" })] }));
@@ -643,6 +654,21 @@ export default class GitHub extends View {
     });
   }
   pick(value) { setShared("git-remote.pick", { space: this.picker.space, value, at: Date.now() }); closeOverlay(this.picker.overlay); }
+  renderAccountMenu(t) {
+    const p = primer(t), m = this.accountMenu, active = m.logins.find((l) => l.active)?.login;
+    const row = (id, title, note, on, user) => h_flex().id(id).h(46).flex_none().px(10).gap(10).items_center().rounded(6).cursor_pointer().hover((x) => x.bg(t.hover))
+      .on_click(() => { setShared("git-remote.pick-account", { dir: m.dir, user, at: Date.now() }); closeOverlay(m.overlay); })
+      .child(div().w(14).flex_none().child(on ? glyph("check", 14, p.link) : div()))
+      .child(glyph("user", 15, t.muted))
+      .child(v_flex().flex_1().min_w(0).child(div().text_size(13).truncate().font_medium().child(title)).child(div().text_size(11).text_color(t.muted).truncate().child(note)));
+    return v_flex().id("account-menu").size_full().bg(t.popover).text_color(t.foreground)
+      .child(div().px(12).pt(10).pb(6).text_size(12.5).font_semibold().child("選擇 GitHub 帳號"))
+      .child(v_flex().px(4).pb(6)
+        .child(row("acct-auto", "自動", m.declared ? `依 .envrc：${m.declared}` : `gh 目前帳號：${active ?? "?"}`, m.picked === "", ""))
+        .child(div().mx(10).my(4).h(1).bg(t.border))
+        .children(m.logins.map((l) => row(`acct-${l.login}`, l.login, [l.active && "gh 目前帳號", m.declared === l.login && ".envrc 指定"].filter(Boolean).join(" · ") || "已登入", m.picked === l.login, l.login))));
+  }
+
   renderPicker(t) {
     const p = primer(t), s = this.picker, q = s.q.trim().toLowerCase();
     const row = (id, g, title, note, on, onClick) => h_flex().id(id).h(40).flex_none().px(10).gap(10).items_center().rounded(6).cursor_pointer().hover((x) => x.bg(t.hover)).on_click(onClick)
