@@ -5,9 +5,9 @@ const pr = { repo: "o/r", number: 7, title: "t", url: "u", headRefName: "feat/x"
 const local = { folder: "/code/r", branch: "main", worktrees: [{ path: "/code/r", branch: "main" }, { path: "/wt/feat-x", branch: "feat/x" }] };
 
 test("worktreeOf finds the worktree that has the branch checked out", () => {
-  expect(worktreeOf(local, "feat/x")).toEqual({ path: "/wt/feat-x", branch: "feat/x" });
-  expect(worktreeOf(local, "other")).toBeNull();
-  expect(worktreeOf({ folder: "/code/r" }, "feat/x")).toBeNull();
+  expect(worktreeOf(local, pr)).toEqual({ path: "/wt/feat-x", branch: "feat/x" });
+  expect(worktreeOf(local, { headRefName: "other" })).toBeNull();
+  expect(worktreeOf({ folder: "/code/r" }, pr)).toBeNull();
 });
 
 test("a PR brief names the worktree and does not tell the agent to check the branch out", () => {
@@ -20,4 +20,10 @@ test("a PR brief names the worktree and does not tell the agent to check the bra
 test("without such a worktree the brief still tells the agent to check the PR out", () => {
   const text = prBrief(pr, { local: { folder: "/code/r", worktrees: [{ path: "/code/r", branch: "main" }] } });
   expect(text).toContain("1. Get the branch: `gh pr checkout 7`");
+});
+
+test("a fork PR never uses a local worktree, even when the branch name matches", () => {
+  const fork = { ...pr, isCrossRepository: true };
+  expect(worktreeOf(local, fork)).toBeNull();
+  expect(prBrief(fork, { local })).toContain("1. Get the branch: `gh pr checkout 7`");
 });

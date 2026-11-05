@@ -77,11 +77,11 @@ export function issueBrief(i, { local } = {}) {
 }
 
 // The worktree of the local clone that already has `branch` checked out ({ path, branch }), so an agent works there
-// instead of checking the branch out somewhere else. `local.worktrees` is every worktree of the clone (gh.js localState).
-export const worktreeOf = (local, branch) => (branch && (local?.worktrees ?? []).find((w) => w.branch === branch)) || null;
+// instead of checking the branch out somewhere else (never for a fork PR: its branch name is not ours). `local.worktrees` is every worktree of the clone (gh.js localState).
+export const worktreeOf = (local, pr) => (pr?.headRefName && !pr.isCrossRepository && (local?.worktrees ?? []).find((w) => w.branch === pr.headRefName)) || null;
 
 export function prBrief(pr, { local } = {}) {
-  const wt = worktreeOf(local, pr.headRefName);
+  const wt = worktreeOf(local, pr);
   const failed = (pr.checks?.failed ?? []).map((c) => `- ${c.workflow ? `${c.workflow} / ` : ""}${c.name}: ${c.conclusion}${c.url ? ` (${c.url})` : ""}`);
   const reviews = (pr.reviews ?? []).filter((r) => r.body?.trim() || r.state === "CHANGES_REQUESTED").slice(-6);
   const comments = (pr.comments ?? []).filter((c) => c.body?.trim()).slice(-6);

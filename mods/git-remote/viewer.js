@@ -13,7 +13,7 @@ import { pickAgent, openIssueWorktree } from "./actions.js";
 
 const FIELDS = {
   issue: "number,title,body,author,state,stateReason,labels,assignees,createdAt,updatedAt,comments,url,milestone,reactionGroups,closedByPullRequestsReferences",
-  pr: "number,title,body,author,state,isDraft,labels,assignees,createdAt,updatedAt,comments,url,milestone,reactionGroups,headRefName,baseRefName,headRefOid,additions,deletions,changedFiles,reviewDecision,statusCheckRollup,mergeable,reviewRequests,reviews,closingIssuesReferences,mergedAt",
+  pr: "number,title,body,author,state,isDraft,labels,assignees,createdAt,updatedAt,comments,url,milestone,reactionGroups,headRefName,baseRefName,headRefOid,additions,deletions,changedFiles,reviewDecision,statusCheckRollup,mergeable,reviewRequests,reviews,closingIssuesReferences,mergedAt,isCrossRepository",
 };
 const LINK = /^https?:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(issues|pull)\/(\d+)(?:[/?#].*)?$/;
 const ROLE = { OWNER: "Owner", MEMBER: "Member", COLLABORATOR: "Collaborator", CONTRIBUTOR: "Contributor" };
@@ -310,7 +310,7 @@ export class Viewer {
     pickAgent({
       name: `${this.pr() ? "PR " : ""}#${i.number} ${this.repo.split("/")[1]}`,
       brief: this.brief(),
-      folder: (this.pr() ? worktreeOf(this.localState, i.headRefName)?.path : null) ?? l?.folder ?? null,
+      folder: (this.pr() ? worktreeOf(this.localState, i)?.path : null) ?? l?.folder ?? null,
       space: l?.space ?? null,
       issue: this.pr() ? null : { number: i.number, title: i.title },
     });

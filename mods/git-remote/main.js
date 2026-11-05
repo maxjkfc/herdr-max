@@ -233,13 +233,13 @@ export default class GitHub extends View {
   }
   async brief(item, kind) {
     const fields = kind === "pr"
-      ? "number,title,body,author,state,labels,assignees,comments,url,headRefName,baseRefName,additions,deletions,changedFiles,reviewDecision,statusCheckRollup,reviews,closingIssuesReferences,milestone"
+      ? "number,title,body,author,state,labels,assignees,comments,url,headRefName,baseRefName,additions,deletions,changedFiles,reviewDecision,statusCheckRollup,reviews,closingIssuesReferences,milestone,isCrossRepository"
       : "number,title,body,author,state,labels,assignees,comments,url,milestone";
     const full = { ...await ghJson([kind === "pr" ? "pr" : "issue", "view", String(item.number), "-R", item.repo, "--json", fields]), repo: item.repo };
     if (kind === "pr") full.checks = checksOf(full);
     const l = this.locals[item.repo], local = l ? { ...l, ...(await localState(l.folder) ?? {}) } : null;
     // A PR's agent works where its branch is already checked out, if some worktree of the clone has it.
-    const folder = kind === "pr" ? worktreeOf(local, full.headRefName)?.path ?? null : null;
+    const folder = kind === "pr" ? worktreeOf(local, full)?.path ?? null : null;
     return { text: kind === "pr" ? prBrief(full, { local }) : issueBrief(full, { local }), folder };
   }
   startAgent(item, kind, cx) {
