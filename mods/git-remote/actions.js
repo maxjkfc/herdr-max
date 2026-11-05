@@ -1,6 +1,6 @@
 import { v_flex, h_flex } from "gpui-base";
 import { div, svg, image } from "gpui-kit";
-import { run, notify, openOverlay, closeOverlay, knownAgents, spaces, panes, exec, home, shared, setShared, nextCommand } from "herdr";
+import { run, notify, openOverlay, closeOverlay, knownAgents, spaces, panes, focused, exec, home, shared, setShared, nextCommand } from "herdr";
 import { glyph, under } from "./ui.js";
 
 export function copied(cx, text, title, body) {
@@ -94,8 +94,9 @@ export async function launch(agent, { name, brief, folder, space, issue, inWorkt
     return;
   }
   const args = { name: name.slice(0, 48), argv: agent.run, task: brief };
-  const homeSpace = space ?? spaces().find((s) => !s.machine && folder && s.folder === folder)?.id ?? spaces().find((s) => s.active)?.id;
-  if (homeSpace) args.space = homeSpace;
+  // The space being looked at, not the one the repo's checkout was found in (that may be another space, or one that no longer exists).
+  const here = focused()?.space ?? spaces().find((s) => s.active)?.id;
+  if (here) args.space = here;
   if (folder) args.folder = folder;
   run("tab.new", args);
   notify({ title: `${agent.name} started`, body: name, level: "success", timeout: 3000 });
