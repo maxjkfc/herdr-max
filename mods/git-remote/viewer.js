@@ -1,7 +1,8 @@
 import { div, image } from "gpui-kit";
-import { v_flex, h_flex, TextView, TextareaState, Textarea, Scrollbar, v_virtual_list, VirtualListScrollHandle } from "gpui-base";
+import { v_flex, h_flex, TextView, TextareaState, Textarea, Scrollbar, v_virtual_list, VirtualListScrollHandle, InputState, Input } from "gpui-base";
 import { theme, closeOverlay, setShared, run, notify, nextCommand } from "herdr";
 import { split, want, avatar } from "./media.js";
+import { treeRows } from "./filetree.js";
 import { entries, tally, loginOf } from "./timeline.js";
 import { primer, glyph, spinner, ago, openUrl, issueState, prState, checksOf, glyphOf, labelChip, button, badge } from "./ui.js";
 import { ghJson, gh, localState } from "./gh.js";
@@ -33,7 +34,6 @@ const DIFF_PALETTES = [
   { id: "cb", label: "藍橘（色盲友善）", add: "#388bfd", del: "#f0883e", a: "2e" },
 ];
 const PALETTE_KEY = "github.diffPalette";
-const dirOf = (path) => { const k = path.lastIndexOf("/"); return k < 0 ? ["", path] : [path.slice(0, k + 1), path.slice(k + 1)]; };
 
 const display = (name) => name.replace(/^app\//, "").replace(/\[bot\]$/, "");
 const isBot = (name) => /^app\/|\[bot\]$/.test(name);
@@ -91,6 +91,12 @@ export class Viewer {
     this.box.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
     this.box.on("blur", (_e, cx) => { this.typing = false; cx.notify(); });
     this.box.on("submit", (e, cx) => { if (e.secondary) this.comment(cx); });
+    // The files column is a folder tree: folders the user collapsed, and the filter box above it (it shares `typing` with the comment box).
+    this.collapsed = new Set(); this.filter = "";
+    this.filterInput = InputState.new({ placeholder: "篩選檔案…" });
+    this.filterInput.on("change", (_e, cx) => { this.filter = this.filterInput.value(); cx.notify(); });
+    this.filterInput.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
+    this.filterInput.on("blur", (_e, cx) => { this.typing = false; cx.notify(); });
 
     this.handle.focus();
     cx.timer.after(50, () => this.handle.focus());
@@ -155,12 +161,14 @@ export class Viewer {
     });
   }
 
+  // Next / previous file among the rows the tree shows (folders collapsed or filtered away are skipped).
   stepFile(delta) {
     const files = this.diffs[this.key()] ?? [];
-    if (!files.length) return;
-    const next = (this.fileIdx + delta + files.length) % files.length;
-    this.pickDiffFile(next);
-    this.fileList.scroll_to_item(next, "center");
+    const rows = treeRows(files, this.collapsed, this.filter), shown = rows.filter((r) => r.type === "file");
+    if (!shown.length) return;
+    const next = shown[(shown.findIndex((r) => r.idx === this.fileIdx) + delta + shown.length) % shown.length];
+    this.pickDiffFile(next.idx);
+    this.fileList.scroll_to_item(rows.indexOf(next), "center");
   }
 
   pickDiffFile(idx) {
@@ -518,14 +526,18 @@ export class Viewer {
     const p = primer(t), c = this.palette(t), files = this.diffs[this.key()] ?? [];
     const cur = files[this.fileIdx];
 
-    const renderFileRow = (f, idx) => {
-      const on = this.fileIdx === idx, [dir, name] = dirOf(f.path);
-      return h_flex().w_full().h(FILE_ROW_H).flex_none().px(10).gap(6).items_center().cursor_pointer()
+    const tree = treeRows(files, this.collapsed, this.filter);
+    const treeRow = (r) => {
+      const pad = 10 + r.depth * 14;
+      if (r.type === "dir") return h_flex().w_full().h(FILE_ROW_H).flex_none().pl(pad).pr(10).gap(6).items_center().cursor_pointer()
+        .child(div().w(10).flex_none().text_size(10).text_color(t.dim).child(r.open ? "▾" : "▸"))
+        .child(div().flex_1().min_w(0).truncate().text_size(12.5).font_family(MONO).text_color(t.muted).child(r.name))
+        .child(div().flex_none().text_size(11).text_color(t.dim).child(String(r.count)));
+      const f = r.f, on = this.fileIdx === r.idx;
+      return h_flex().w_full().h(FILE_ROW_H).flex_none().pl(pad).pr(10).gap(6).items_center().cursor_pointer()
         .bg(on ? t.selected : "#00000000")
         .child(div().w(2).h(16).flex_none().rounded(1).bg(on ? t.accent : "#00000000"))
-        .child(h_flex().flex_1().min_w(0).gap(0).items_center().text_size(12.5).font_family(MONO)
-          .child(div().flex_none().max_w(150).truncate().text_color(on ? t.foreground : t.muted).when(on, (x) => x.font_semibold()).child(name))
-          .child(div().flex_1().min_w(0).truncate().pl(5).text_size(11).text_color(t.dim).child(dir)))
+        .child(div().flex_1().min_w(0).truncate().text_size(12.5).font_family(MONO).text_color(on ? t.foreground : t.muted).when(on, (x) => x.font_semibold()).child(r.name))
         .when(f.binary, (e) => e.child(div().text_size(11).text_color(t.dim).child("binary")))
         .when(f.add > 0, (e) => e.child(div().flex_none().text_size(11).text_color(c.add).child(`+${f.add}`)))
         .when(f.del > 0, (e) => e.child(div().flex_none().text_size(11).text_color(c.del).child(`−${f.del}`)));
@@ -539,12 +551,19 @@ export class Viewer {
         .child(div().pl(4).text_color(c.del).child(`−${i.deletions ?? 0}`)))
       .when(this.diffLoading && !files.length, (e) => e.child(h_flex().px(12).py(10).gap(6).items_center().text_size(12).text_color(t.muted).child(spinner(12, t.working)).child("正在載入 Diff…")))
       .when(Boolean(this.diffError), (e) => e.child(div().px(12).py(8).text_size(12).text_color(p.closed).child(this.diffError)))
+      .child(h_flex().flex_none().mx(10).my(6).h(28).px(8).gap(6).items_center().rounded(6).bg(t.input ?? t.background).border_1().border_color(this.typing ? t.accent : t.border)
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .child(Input.new(this.filterInput).flex_1().h_full().text_size(12.5).text_color(t.foreground)))
       .child(div().flex_1().min_h(0).relative()
-        .child(v_virtual_list("pr-diff-files", files.length, FILE_ROW_H, (idx) => String(idx),
-          (range) => files.slice(range.start, range.end).map((f, k) => renderFileRow(f, range.start + k)))
+        .child(v_virtual_list("pr-diff-files", tree.length, FILE_ROW_H, (idx) => tree[idx].key,
+          (range) => tree.slice(range.start, range.end).map((r) => treeRow(r)))
           .track_scroll(this.fileList)
           // A virtual list's rows may not carry handlers; one on the list names the row by its key.
-          .on_item_click((key, cx) => { this.pickDiffFile(Number(key)); cx.notify(); })
+          .on_item_click((key, cx) => {
+            if (key.startsWith("d:")) { const p = key.slice(2); if (!this.collapsed.delete(p)) this.collapsed.add(p); }
+            else this.pickDiffFile(Number(key.slice(2)));
+            this.handle.focus(); cx.notify();
+          })
           .size_full())
         .child(Scrollbar.vertical("pr-diff-files").viewport_from_layout().absolute().inset_0()))
       .child(div().flex_none().px(12).py(6).border_t(1).border_color(t.border).text_size(11).text_color(t.dim).child("j / k 或 ↑ / ↓ 切換檔案"));

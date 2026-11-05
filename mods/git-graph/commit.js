@@ -1,6 +1,7 @@
 import { div } from "gpui-kit";
-import { v_flex, h_flex, Scrollbar, v_virtual_list, VirtualListScrollHandle } from "gpui-base";
+import { v_flex, h_flex, Scrollbar, v_virtual_list, VirtualListScrollHandle, InputState, Input } from "gpui-base";
 import { exec, theme, closeOverlay } from "herdr";
+import { treeRows } from "./filetree.js";
 
 const READ = ["--no-optional-locks", "-c", "core.fsmonitor=false"];
 const MONO = "JetBrains Mono";
@@ -17,7 +18,6 @@ const PALETTE_KEY = "commit.diffPalette";
 
 const pad = (n) => String(n).padStart(2, "0");
 const fullDate = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
-const dirOf = (path) => { const k = path.lastIndexOf("/"); return k < 0 ? ["", path] : [path.slice(0, k + 1), path.slice(k + 1)]; };
 
 // Unified `diff --git` text → [{ path, add, del, binary, rows: [{ kind: "@"|"+"|"-"|" ", number?, text }] }].
 export function parseDiff(text) {
@@ -52,6 +52,12 @@ export class CommitDialog {
     Object.assign(this, { commit, root, on, overlay });
     this.body = null; this.files = []; this.fileIdx = 0; this.rows = []; this.diffWidth = 0;
     this.loading = true; this.error = null;
+    // The files column is a folder tree: folders the user collapsed, and the filter box above it.
+    this.collapsed = new Set(); this.filter = ""; this.typing = false;
+    this.filterInput = InputState.new({ placeholder: "篩選檔案…" });
+    this.filterInput.on("change", (_e, cx) => { this.filter = this.filterInput.value(); cx.notify(); });
+    this.filterInput.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
+    this.filterInput.on("blur", (_e, cx) => { this.typing = false; cx.notify(); });
     this.handle = cx.focus_handle();
     this.fileList = VirtualListScrollHandle.new();
     try { this.paletteId = localStorage.getItem(PALETTE_KEY) ?? "theme"; } catch { this.paletteId = "theme"; }
@@ -88,11 +94,13 @@ export class CommitDialog {
     this.diffWidth = Math.min(longest, 400) * 8 + 100;
   }
 
+  // Next / previous file among the rows the tree shows (folders collapsed or filtered away are skipped).
   step(delta) {
-    if (!this.files.length) return;
-    const next = (this.fileIdx + delta + this.files.length) % this.files.length;
-    this.pick(next);
-    this.fileList.scroll_to_item(next, "center");
+    const rows = treeRows(this.files, this.collapsed, this.filter), shown = rows.filter((r) => r.type === "file");
+    if (!shown.length) return;
+    const next = shown[(shown.findIndex((r) => r.idx === this.fileIdx) + delta + shown.length) % shown.length];
+    this.pick(next.idx);
+    this.fileList.scroll_to_item(rows.indexOf(next), "center");
   }
 
   cyclePalette() {
@@ -103,6 +111,11 @@ export class CommitDialog {
 
   onKey(e, cx) {
     const k = e.key, ctrl = e.modifiers?.control;
+    if (this.typing) {
+      // Keys belong to the filter box; Escape hands the keyboard back to the dialog.
+      if (k === "escape") { this.typing = false; this.handle.focus(); cx.stop_propagation(); cx.notify(); }
+      return;
+    }
     if (k === "escape" || k === "q") closeOverlay(this.overlay);
     else if (k === "j" || k === "down" || (ctrl && (k === "n"))) this.step(1);
     else if (k === "k" || k === "up" || (ctrl && (k === "p"))) this.step(-1);
@@ -134,14 +147,18 @@ export class CommitDialog {
     const button = (id, label, on_click) => div().id(id).h(26).px(8).flex().items_center().flex_none().rounded(6).border_1().border_color(t.border).text_size(12)
       .text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover)).on_click(on_click).child(label);
 
-    const fileRow = (f, idx) => {
-      const on = this.fileIdx === idx, [dir, name] = dirOf(f.path);
-      return h_flex().w_full().h(FILE_ROW_H).flex_none().px(10).gap(6).items_center().cursor_pointer()
+    const tree = treeRows(files, this.collapsed, this.filter);
+    const treeRow = (r) => {
+      const pad = 10 + r.depth * 14;
+      if (r.type === "dir") return h_flex().w_full().h(FILE_ROW_H).flex_none().pl(pad).pr(10).gap(6).items_center().cursor_pointer()
+        .child(div().w(10).flex_none().text_size(10).text_color(t.dim).child(r.open ? "▾" : "▸"))
+        .child(div().flex_1().min_w(0).truncate().text_size(12.5).font_family(MONO).text_color(t.muted).child(r.name))
+        .child(div().flex_none().text_size(11).text_color(t.dim).child(String(r.count)));
+      const f = r.f, on = this.fileIdx === r.idx;
+      return h_flex().w_full().h(FILE_ROW_H).flex_none().pl(pad).pr(10).gap(6).items_center().cursor_pointer()
         .bg(on ? t.selected : "#00000000")
         .child(div().w(2).h(16).flex_none().rounded(1).bg(on ? t.accent : "#00000000"))
-        .child(h_flex().flex_1().min_w(0).items_center().text_size(12.5).font_family(MONO)
-          .child(div().flex_none().max_w(150).truncate().text_color(on ? t.foreground : t.muted).when(on, (x) => x.font_semibold()).child(name))
-          .child(div().flex_1().min_w(0).truncate().pl(5).text_size(11).text_color(t.dim).child(dir)))
+        .child(div().flex_1().min_w(0).truncate().text_size(12.5).font_family(MONO).text_color(on ? t.foreground : t.muted).when(on, (x) => x.font_semibold()).child(r.name))
         .when(f.binary, (e) => e.child(div().text_size(11).text_color(t.dim).child("binary")))
         .when(f.add > 0, (e) => e.child(div().flex_none().text_size(11).text_color(c.add).child(`+${f.add}`)))
         .when(f.del > 0, (e) => e.child(div().flex_none().text_size(11).text_color(c.del).child(`−${f.del}`)));
@@ -171,12 +188,19 @@ export class CommitDialog {
         .child(div().text_color(c.add).child(`+${add}`)).child(div().pl(4).text_color(c.del).child(`−${del}`)))
       .when(this.loading, (e) => e.child(div().px(12).py(10).text_size(12).text_color(t.muted).child("正在載入 Diff…")))
       .when(Boolean(this.error), (e) => e.child(div().px(12).py(8).text_size(12).text_color(t.ansi1).child(this.error)))
+      .child(h_flex().flex_none().mx(10).my(6).h(28).px(8).gap(6).items_center().rounded(6).bg(t.input ?? t.background).border_1().border_color(this.typing ? t.accent : t.border)
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .child(Input.new(this.filterInput).flex_1().h_full().text_size(12.5).text_color(t.foreground)))
       .child(div().flex_1().min_h(0).relative()
-        .child(v_virtual_list("cd-files", files.length, FILE_ROW_H, (i) => String(i),
-          (range) => files.slice(range.start, range.end).map((f, k) => fileRow(f, range.start + k)))
+        .child(v_virtual_list("cd-files", tree.length, FILE_ROW_H, (i) => tree[i].key,
+          (range) => tree.slice(range.start, range.end).map((r) => treeRow(r)))
           .track_scroll(this.fileList)
           // A virtual list's rows may not carry handlers; one on the list names the row by its key.
-          .on_item_click((key, cx) => { this.pick(Number(key)); cx.notify(); })
+          .on_item_click((key, cx) => {
+            if (key.startsWith("d:")) { const p = key.slice(2); if (!this.collapsed.delete(p)) this.collapsed.add(p); }
+            else this.pick(Number(key.slice(2)));
+            this.handle.focus(); cx.notify();
+          })
           .size_full())
         .child(Scrollbar.vertical("cd-files").viewport_from_layout().absolute().inset_0()))
       .child(div().flex_none().px(12).py(6).border_t(1).border_color(t.border).text_size(11).text_color(t.dim).child("j / k 或 ↑ / ↓ 切換檔案 · Esc 關閉"));

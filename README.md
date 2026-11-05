@@ -51,7 +51,7 @@ A customized [Herdr](https://herdr.dev) desktop layout (`main-custom`) and mod s
 - Ref chips per commit: `HEAD`/current branch, local branches, `origin/*` remotes, tags.
 - Header toggle switches between **All branches** (local + remote + tags) and **HEAD only**; `↻` forces a refresh. The graph also auto-refreshes every 6s when refs change.
 - Click a commit to open its detail drawer: hash, author, date, message body, changed files (first-parent diff for merges).
-- **Right-click a commit → menu**: **顯示詳細資訊** opens an 88% × 92% dialog like the PR one: header (hash, ref chips, subject, author, date, parents), the full message, the changed files as a left column (`+N −N` each, `j`/`k` to switch) and the selected file's diff on the right (first-parent diff for merges, root diff for the first commit; the **配色** button cycles the diff colors). The menu also copies the full hash or the subject.
+- **Right-click a commit → menu**: **顯示詳細資訊** opens an 88% × 92% dialog like the PR one: header (hash, ref chips, subject, author, date, parents), the full message, the changed files as a folder tree on the left (collapsible folders, `+N −N` per file, a filter box, `j`/`k` to switch) and the selected file's diff on the right (first-parent diff for merges, root diff for the first commit; the **配色** button cycles the diff colors). The menu also copies the full hash or the subject.
 - Lives inside the unified **Git** right-hand panel (`Changes` | `Graph` | `Remote`). The tab bar (`tabs-plus`) keeps a clean 2-button layout: **Files** and **Git**.
 
 ### 7. `git-hub` & `git-remote` — Unified Git Panel (`Changes | Graph | Remote`) & Issue-to-Worktree (`Ctrl+A` → `o`)
@@ -61,7 +61,7 @@ A customized [Herdr](https://herdr.dev) desktop layout (`main-custom`) and mod s
 - **One-click Pull**: a sync row under the tab bar shows the current branch with `↓behind` / `↑ahead` (read from the last fetch, no network) and a **↓ 拉取** button that runs `git pull --ff-only` in the focused pane's repo (also on remote machines). Fast-forward only: no merge commits, and a diverged branch fails with a toast instead of being rewritten. The result (already up to date / N commits pulled / failure reason) shows as a notification. The panel header height in `layouts/main-custom.json` is `72px` to fit this row.
 - **88% × 92% PR & Issue Dialog**:
   - **Conversation & Timeline**: Markdown with inline images, comments, review verdicts, labels, assignees, and close/reopen/comment composer.
-  - **Files Changed (Diff) Tab**: Full two-column file list (`+`/`−` counts) + virtualized unified diff viewer inside the PR dialog.
+  - **Files Changed (Diff) Tab**: Folder-tree file column with a filter box (`+`/`−` counts, collapsible folders) + virtualized unified diff viewer inside the PR dialog. The commit dialog in `git-graph` uses the same layout; `filetree.js` exists in both mods and must stay identical (a mod cannot import another mod's files).
   - **Direct PR Merge**: Embedded in `mergeBox` with **Merge commit / Squash and merge / Rebase and merge** confirmation and `--match-head-commit` SHA guard.
 - **1-Click Issue → Herdr Worktree (`spaces-plus` + `worktree-plus` integration)**:
   - Click the branch icon on any hovered Issue row, or click **Open Worktree** inside the Issue dialog, to automatically create `~/.herdr/worktrees/<repo>/feat/issue-<N>-<slug>`, bind `🎯 #<N>` in `shared("worktree-plus.meta")`, and switch to the new nested Worktree Space.

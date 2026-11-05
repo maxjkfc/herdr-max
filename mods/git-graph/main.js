@@ -231,7 +231,6 @@ export default class GitGraph extends View {
     const focusReq = shared("git.focus");
     if (focusReq?.at && focusReq.at !== this.focusAt && focusReq.target === "graph") {
       this.focusAt = focusReq.at;
-      this.handle.focus();
       cx.timer.after(40, () => this.handle.focus());
     }
     const t = theme(), rows = this.graph.rows;
