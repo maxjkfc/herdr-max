@@ -1,5 +1,5 @@
 import { div, image } from "gpui-kit";
-import { v_flex, h_flex, TextView, TextareaState, Textarea, Scrollbar, v_virtual_list } from "gpui-base";
+import { v_flex, h_flex, TextView, TextareaState, Textarea, Scrollbar, v_virtual_list, VirtualListScrollHandle } from "gpui-base";
 import { theme, closeOverlay, setShared, run, notify, nextCommand } from "herdr";
 import { split, want, avatar } from "./media.js";
 import { entries, tally, loginOf } from "./timeline.js";
@@ -23,8 +23,17 @@ const VERDICT = {
 const METHODS = [["merge", "Merge commit", "pr-merged", "M"], ["squash", "Squash and merge", "commit", "S"], ["rebase", "Rebase and merge", "branch", "B"]];
 const MONO = "JetBrains Mono";
 const MAX_DIFF_ROWS = 5000;
-const FILE_ROW_H = 26;
-const FILE_VIEW_H = 148;
+const FILE_ROW_H = 28;
+// Diff colors, cycled from the diff header and remembered. `add`/`del` null = take the theme's green/red;
+// `a` is the row tint's alpha (hex). Add a preset here to get another choice.
+const DIFF_PALETTES = [
+  { id: "theme", label: "主題", add: null, del: null, a: "18" },
+  { id: "vivid", label: "鮮明", add: null, del: null, a: "33" },
+  { id: "github", label: "GitHub", add: "#2ea043", del: "#f85149", a: "26" },
+  { id: "cb", label: "藍橘（色盲友善）", add: "#388bfd", del: "#f0883e", a: "2e" },
+];
+const PALETTE_KEY = "github.diffPalette";
+const dirOf = (path) => { const k = path.lastIndexOf("/"); return k < 0 ? ["", path] : [path.slice(0, k + 1), path.slice(k + 1)]; };
 
 const display = (name) => name.replace(/^app\//, "").replace(/\[bot\]$/, "");
 const isBot = (name) => /^app\/|\[bot\]$/.test(name);
@@ -70,7 +79,9 @@ export class Viewer {
   constructor({ kind, repo, number, data, me, locals }, overlay, cx) {
     Object.assign(this, { kind, repo, number, me, overlay, locals: locals ?? {} });
     this.trail = []; this.items = {}; this.threads = {}; this.repoLabels = {}; this.mode = "write";
-    this.diffs = {}; this.fileIdx = 0; this.fileScroll = 0; this.diffRows = []; this.diffWidth = 0;
+    this.diffs = {}; this.fileIdx = 0; this.diffRows = []; this.diffWidth = 0;
+    this.fileList = VirtualListScrollHandle.new();
+    try { this.paletteId = localStorage.getItem(PALETTE_KEY) ?? "theme"; } catch { this.paletteId = "theme"; }
     this.merging = false; this.mergeError = null; this.typing = false;
     this.handle = cx.focus_handle();
     if (data) this.items[this.key()] = data;
@@ -144,24 +155,17 @@ export class Viewer {
     });
   }
 
-  ensureFileVisible(count) {
-    const total = count * FILE_ROW_H;
-    const height = Math.min(FILE_VIEW_H, total);
-    if (this.fileIdx * FILE_ROW_H < this.fileScroll) this.fileScroll = this.fileIdx * FILE_ROW_H;
-    if ((this.fileIdx + 1) * FILE_ROW_H > this.fileScroll + height) this.fileScroll = (this.fileIdx + 1) * FILE_ROW_H - height;
-  }
-
   stepFile(delta) {
     const files = this.diffs[this.key()] ?? [];
     if (!files.length) return;
     const next = (this.fileIdx + delta + files.length) % files.length;
     this.pickDiffFile(next);
+    this.fileList.scroll_to_item(next, "center");
   }
 
   pickDiffFile(idx) {
     const files = this.diffs[this.key()] ?? [];
     this.fileIdx = files.length ? Math.max(0, Math.min(idx, files.length - 1)) : 0;
-    this.ensureFileVisible(files.length);
     const rows = files[this.fileIdx]?.rows ?? [];
     this.diffRows = rows.length > MAX_DIFF_ROWS
       ? [...rows.slice(0, MAX_DIFF_ROWS), { kind: "@", text: `Diff truncated at ${MAX_DIFF_ROWS} lines` }]
@@ -265,13 +269,13 @@ export class Viewer {
   goTo(repo, number, kind, cx) {
     if (repo === this.repo && number === this.number) return;
     this.trail.push({ repo: this.repo, number: this.number, kind: this.kind });
-    Object.assign(this, { repo, number, kind, picking: false, mergeError: null, fileIdx: 0, fileScroll: 0 });
+    Object.assign(this, { repo, number, kind, picking: false, mergeError: null, fileIdx: 0 });
     this.load(cx); cx.notify();
   }
   goBack(cx) {
     const prev = this.trail.pop();
     if (!prev) return;
-    Object.assign(this, { ...prev, picking: false, mergeError: null, fileIdx: 0, fileScroll: 0 });
+    Object.assign(this, { ...prev, picking: false, mergeError: null, fileIdx: 0 });
     this.load(cx); cx.notify();
   }
   follow(url, cx) {
@@ -488,75 +492,78 @@ export class Viewer {
       .when(Boolean(this.mergeError), (e) => e.child(div().text_size(12).text_color(p.closed).child(this.mergeError)));
   }
 
-  diffRow({ kind, number, text }, t) {
-    if (kind === "@") return div().w_full().px(12).h(22).flex_none().truncate().bg(t.raised).text_color(t.dim).child(text);
-    return h_flex().w_full().h(22).flex_none().gap(10)
-      .when(kind === "+", (e) => e.bg(t.ansi2 + "18"))
-      .when(kind === "-", (e) => e.bg(t.ansi1 + "18"))
-      .child(div().w(40).flex_none().text_right().text_color(t.dim).child(number === undefined ? "" : String(number)))
-      .child(div().flex_1().min_w(0).truncate().child(text));
+  palette(t) {
+    const p = DIFF_PALETTES.find((x) => x.id === this.paletteId) ?? DIFF_PALETTES[0];
+    return { ...p, add: p.add ?? t.ansi2, del: p.del ?? t.ansi1 };
   }
 
-  // Right-hand side of the PR split workbench: scrollable + keyboard-navigable changed files strip + live unified diff.
-  diffWorkbench(i, t, cx) {
-    const p = primer(t), files = this.diffs[this.key()] ?? [];
-    const total = files.length * FILE_ROW_H;
-    const height = Math.min(FILE_VIEW_H, Math.max(FILE_ROW_H, total));
-    const fixed = total > height;
-    const maxScroll = Math.max(0, total - height);
-    this.fileScroll = Math.max(0, Math.min(this.fileScroll, maxScroll));
-    this.ensureFileVisible(files.length);
+  cyclePalette() {
+    const at = DIFF_PALETTES.findIndex((x) => x.id === this.paletteId);
+    this.paletteId = DIFF_PALETTES[(at + 1) % DIFF_PALETTES.length].id;
+    try { localStorage.setItem(PALETTE_KEY, this.paletteId); } catch { /* memory only */ }
+  }
 
-    const placeRow = (el, idx) => fixed
-      ? el.absolute().left(6).right(fixed ? 14 : 6).top(idx * FILE_ROW_H - this.fileScroll).h(FILE_ROW_H)
-      : el;
-    const visible = (idx) => !fixed || ((idx + 1) * FILE_ROW_H > this.fileScroll && idx * FILE_ROW_H < this.fileScroll + height);
+  diffRow({ kind, number, text }, t, c) {
+    if (kind === "@") return div().w_full().px(12).h(22).flex_none().truncate().bg(t.raised).text_color(t.dim).child(text);
+    const tone = kind === "+" ? c.add : kind === "-" ? c.del : null;
+    return h_flex().w_full().h(22).flex_none()
+      .when(Boolean(tone), (e) => e.bg(tone + c.a))
+      .child(div().w(3).h_full().flex_none().when(Boolean(tone), (e) => e.bg(tone)))
+      .child(div().w(40).flex_none().text_right().text_color(tone ?? t.dim).child(number === undefined ? "" : String(number)))
+      .child(div().flex_1().min_w(0).pl(10).truncate().child(text));
+  }
+
+  // Right-hand side of the PR split workbench: changed files down the left, the selected file's diff on the right.
+  diffWorkbench(i, t, cx) {
+    const p = primer(t), c = this.palette(t), files = this.diffs[this.key()] ?? [];
+    const cur = files[this.fileIdx];
 
     const renderFileRow = (f, idx) => {
-      const on = this.fileIdx === idx;
-      return h_flex().id(`pr-df-${idx}`).h(FILE_ROW_H).flex_none().px(8).gap(8).items_center().rounded(5).cursor_pointer()
+      const on = this.fileIdx === idx, [dir, name] = dirOf(f.path);
+      return h_flex().id(`pr-df-${idx}`).w_full().h(FILE_ROW_H).flex_none().px(10).gap(6).items_center().cursor_pointer()
         .bg(on ? t.selected : "#00000000")
-        .border_1().border_color(on ? t.accent : "#00000000")
         .hover((s) => s.bg(t.hover))
         .on_click((_e, cx) => { this.pickDiffFile(idx); cx.notify(); })
-        .child(div().w(34).flex_none().text_size(11).text_color(on ? t.accent : t.dim).font_family(MONO).child(`${idx + 1}/${files.length}`))
-        .child(div().flex_1().min_w(0).truncate().text_size(12.5).font_family(MONO).text_color(on ? t.foreground : t.muted).when(on, (x) => x.font_semibold()).child(f.path))
+        .child(div().w(2).h(16).flex_none().rounded(1).bg(on ? t.accent : "#00000000"))
+        .child(h_flex().flex_1().min_w(0).gap(0).items_center().text_size(12.5).font_family(MONO)
+          .child(div().flex_none().max_w(150).truncate().text_color(on ? t.foreground : t.muted).when(on, (x) => x.font_semibold()).child(name))
+          .child(div().flex_1().min_w(0).truncate().pl(5).text_size(11).text_color(t.dim).child(dir)))
         .when(f.binary, (e) => e.child(div().text_size(11).text_color(t.dim).child("binary")))
-        .when(f.add > 0, (e) => e.child(div().text_size(11.5).text_color(p.open).child(`+${f.add}`)))
-        .when(f.del > 0, (e) => e.child(div().text_size(11.5).text_color(p.closed).child(`−${f.del}`)));
+        .when(f.add > 0, (e) => e.child(div().flex_none().text_size(11).text_color(c.add).child(`+${f.add}`)))
+        .when(f.del > 0, (e) => e.child(div().flex_none().text_size(11).text_color(c.del).child(`−${f.del}`)));
     };
 
-    const thumbH = fixed ? Math.max(20, Math.round((height / total) * height)) : 0;
-    const thumbTop = fixed && maxScroll > 0 ? Math.round((this.fileScroll / maxScroll) * (height - thumbH)) : 0;
+    const filesPanel = v_flex().id("pr-diff-files-panel").w(290).flex_none().h_full().border_r(1).border_color(t.border).bg(t.surface)
+      .child(h_flex().flex_none().px(12).py(8).gap(8).items_center().border_b(1).border_color(t.border).text_size(12).text_color(t.muted)
+        .child(div().font_semibold().text_color(t.foreground).child(`異動檔案 (${files.length || i.changedFiles || 0})`))
+        .child(div().flex_1())
+        .child(div().text_color(c.add).child(`+${i.additions ?? 0}`))
+        .child(div().pl(4).text_color(c.del).child(`−${i.deletions ?? 0}`)))
+      .when(this.diffLoading && !files.length, (e) => e.child(h_flex().px(12).py(10).gap(6).items_center().text_size(12).text_color(t.muted).child(spinner(12, t.working)).child("正在載入 Diff…")))
+      .when(Boolean(this.diffError), (e) => e.child(div().px(12).py(8).text_size(12).text_color(p.closed).child(this.diffError)))
+      .child(div().flex_1().min_h(0).relative()
+        .child(v_virtual_list("pr-diff-files", files.length, FILE_ROW_H, (idx) => String(idx),
+          (range) => files.slice(range.start, range.end).map((f, k) => renderFileRow(f, range.start + k))).track_scroll(this.fileList).size_full())
+        .child(Scrollbar.vertical("pr-diff-files").viewport_from_layout().absolute().inset_0()))
+      .child(div().flex_none().px(12).py(6).border_t(1).border_color(t.border).text_size(11).text_color(t.dim).child("j / k 或 ↑ / ↓ 切換檔案"));
 
-    return v_flex().flex_1().min_w(0).h_full().bg(t.background)
-      .child(v_flex().id("pr-diff-files-panel").flex_none().border_b(1).border_color(t.border).bg(t.surface)
-        .child(h_flex().px(14).py(6).gap(8).items_center().border_b(1).border_color(t.border).text_size(12).text_color(t.muted)
-          .child(div().font_semibold().text_color(t.foreground).child(`異動檔案 (${files.length ? `${this.fileIdx + 1} / ${files.length}` : i.changedFiles || 0})`))
-          .child(div().px(6).py(1).rounded(4).bg(t.background).border_1().border_color(t.border).text_size(11).text_color(t.dim).child("j / k 或 ↑ / ↓ 切換檔案"))
-          .child(div().flex_1())
-          .when(files.length > 1, (e) => e
-            .child(button("df-prev", "↑ 上一個", t, (_e, cx) => { this.stepFile(-1); cx.notify(); }, { small: true, invisible: true }))
-            .child(button("df-next", "↓ 下一個", t, (_e, cx) => { this.stepFile(1); cx.notify(); }, { small: true, invisible: true })))
-          .child(div().text_color(p.open).child(`+${i.additions ?? 0}`))
-          .child(div().pl(4).text_color(p.closed).child(`−${i.deletions ?? 0}`)))
-        .when(this.diffLoading && !files.length, (e) => e.child(h_flex().px(14).py(10).gap(6).items_center().text_size(12).text_color(t.muted).child(spinner(12, t.working)).child("正在載入 Diff…")))
-        .when(Boolean(this.diffError), (e) => e.child(div().px(14).py(8).text_size(12).text_color(p.closed).child(this.diffError)))
-        .when(files.length > 0, (e) => e.child(
-          v_flex().id("pr-diff-files-viewport").relative().h(height + (fixed ? 0 : 8)).min_h(0).px(6).py(fixed ? 0 : 4)
-            .when(fixed, (el) => el.overflow_hidden().on_scroll_wheel((ev, cx) => {
-              this.fileScroll = Math.max(0, Math.min(this.fileScroll - ev.delta.y, maxScroll));
-              cx.notify();
-            }))
-            .children(files.map((f, idx) => visible(idx) ? placeRow(renderFileRow(f, idx), idx) : null).filter(Boolean))
-            .when(fixed, (el) => el.child(div().absolute().right(4).top(thumbTop).w(4).h(thumbH).rounded(2).bg(t.border)))
-        )))
+    const diffPane = v_flex().flex_1().min_w(0).h_full().bg(t.background)
+      .child(h_flex().flex_none().h(36).px(14).gap(10).items_center().border_b(1).border_color(t.border).bg(t.surface).text_size(12)
+        .child(div().flex_1().min_w(0).truncate().font_family(MONO).font_semibold().text_color(t.foreground).child(cur?.path ?? ""))
+        .when(Boolean(cur) && cur.add > 0, (e) => e.child(div().text_color(c.add).child(`+${cur.add}`)))
+        .when(Boolean(cur) && cur.del > 0, (e) => e.child(div().text_color(c.del).child(`−${cur.del}`)))
+        .child(button("df-palette", `配色：${c.label}`, t, (_e, cx) => { this.cyclePalette(); cx.notify(); }, { small: true, invisible: true }))
+        .when(files.length > 1, (e) => e
+          .child(button("df-prev", "↑ 上一個", t, (_e, cx) => { this.stepFile(-1); cx.notify(); }, { small: true, invisible: true }))
+          .child(button("df-next", "↓ 下一個", t, (_e, cx) => { this.stepFile(1); cx.notify(); }, { small: true, invisible: true }))))
       .child(div().flex_1().min_h(0).relative().font_family(MONO).text_size(12.5)
         .child(div().id("pr-diff-scroll-x").size_full().overflow_x_scrollbar()
           .child(div().w_full().min_w(this.diffWidth).h_full().child(
             v_virtual_list("pr-diff-rows", this.diffRows.length, 22, (idx) => String(idx),
-              (range) => this.diffRows.slice(range.start, range.end).map((row) => this.diffRow(row, t))).size_full())))
+              (range) => this.diffRows.slice(range.start, range.end).map((row) => this.diffRow(row, t, c))).size_full())))
         .child(Scrollbar.vertical("pr-diff-rows").viewport_from_layout().absolute().inset_0()));
+
+    return h_flex().flex_1().min_w(0).h_full().child(filesPanel).child(diffPane);
   }
 
   composer(i, t, cx) {

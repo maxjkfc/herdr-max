@@ -117,5 +117,9 @@ Paste into any agent running inside Herdr:
 | `Cmd+Shift+↑` / `↓` | Scroll half a page up / down |
 | `Cmd+Shift+Home` / `End` | Scroll to top / bottom |
 
+## PR Diff Viewer
+
+In the PR dialog the changed files are a column on the left of the diff (virtual list, `j`/`k` or `↑`/`↓` to switch, `+N −N` per file); the selected file's diff fills the right. The **配色** button in the diff header cycles the diff colors (theme / vivid / GitHub / blue-orange colorblind-friendly) and remembers the choice. Add presets in `DIFF_PALETTES` in `mods/github/viewer.js`.
+
 ## License
 Apache-2.0
