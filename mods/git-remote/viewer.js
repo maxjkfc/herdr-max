@@ -49,7 +49,7 @@ export class Viewer {
     this.merging = false; this.mergeError = null; this.typing = false;
     this.handle = cx.focus_handle();
     if (data) this.items[this.key()] = data;
-    this.box = TextareaState.new({ placeholder: "輸入留言（支援 Markdown，按 c 聚焦、Esc 離開輸入框、Ctrl+Enter 送出）…" });
+    this.box = TextareaState.new({ placeholder: "輸入留言（支援 Markdown）…" });
     this.box.set_auto_grow(3, 10);
     this.box.on("change", (_e, cx) => { const any = Boolean(this.box.value().trim()); if (any !== this.typed) { this.typed = any; cx.notify(); } });
     this.box.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
@@ -549,7 +549,7 @@ export class Viewer {
           .on_mouse_down("left", (_e, cx) => { this.typing = true; cx.notify(); })
           .child(Textarea.new(this.box).w_full().text_size(13.5).text_color(t.foreground)))
         .child(h_flex().px(10).py(8).gap(6).items_center().border_t(1).border_color(t.border).bg(t.surface)
-          .child(div().flex_1().text_size(11.5).text_color(t.dim).child("按 c 留言 · Esc 離開輸入 · Ctrl+Enter 送出"))
+          .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim).child("按 c 留言 · Esc 離開輸入 · Ctrl+Enter 送出"))
           .children(actions)
           .child(button("comment", "Comment", t, (_e, cx) => this.comment(cx), { primary: true, small: true, enabled: this.typed && !busy }))));
   }
