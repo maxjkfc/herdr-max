@@ -520,10 +520,8 @@ export class Viewer {
 
     const renderFileRow = (f, idx) => {
       const on = this.fileIdx === idx, [dir, name] = dirOf(f.path);
-      return h_flex().id(`pr-df-${idx}`).w_full().h(FILE_ROW_H).flex_none().px(10).gap(6).items_center().cursor_pointer()
+      return h_flex().w_full().h(FILE_ROW_H).flex_none().px(10).gap(6).items_center().cursor_pointer()
         .bg(on ? t.selected : "#00000000")
-        .hover((s) => s.bg(t.hover))
-        .on_click((_e, cx) => { this.pickDiffFile(idx); cx.notify(); })
         .child(div().w(2).h(16).flex_none().rounded(1).bg(on ? t.accent : "#00000000"))
         .child(h_flex().flex_1().min_w(0).gap(0).items_center().text_size(12.5).font_family(MONO)
           .child(div().flex_none().max_w(150).truncate().text_color(on ? t.foreground : t.muted).when(on, (x) => x.font_semibold()).child(name))
@@ -543,7 +541,11 @@ export class Viewer {
       .when(Boolean(this.diffError), (e) => e.child(div().px(12).py(8).text_size(12).text_color(p.closed).child(this.diffError)))
       .child(div().flex_1().min_h(0).relative()
         .child(v_virtual_list("pr-diff-files", files.length, FILE_ROW_H, (idx) => String(idx),
-          (range) => files.slice(range.start, range.end).map((f, k) => renderFileRow(f, range.start + k))).track_scroll(this.fileList).size_full())
+          (range) => files.slice(range.start, range.end).map((f, k) => renderFileRow(f, range.start + k)))
+          .track_scroll(this.fileList)
+          // A virtual list's rows may not carry handlers; one on the list names the row by its key.
+          .on_item_click((key, cx) => { this.pickDiffFile(Number(key)); cx.notify(); })
+          .size_full())
         .child(Scrollbar.vertical("pr-diff-files").viewport_from_layout().absolute().inset_0()))
       .child(div().flex_none().px(12).py(6).border_t(1).border_color(t.border).text_size(11).text_color(t.dim).child("j / k 或 ↑ / ↓ 切換檔案"));
 
