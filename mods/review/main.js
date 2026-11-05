@@ -32,7 +32,6 @@ export default class Review extends View {
     const pr = props() ?? {};
     // The send dialog (a review, or a question about some lines) is this mod opened as an overlay, told so by props.
     if (pr.send) { this.dialog = new SendDialog(pr.send, pr.overlay, cx); return; }
-    if (pr.wtMenu) { this.wtMenu = { ...pr.wtMenu, overlay: pr.overlay }; return; }
     Object.assign(this, { root: pr.root, on: pr.on ?? null, overlay: pr.overlay });
     this.scope = null; this.info = null; this.ref = null;           // info: { branch, base, mergeBase, ahead }
     this.files = []; this.fileIdx = 0; this.rows = []; this.diffWidth = 0;
@@ -59,7 +58,6 @@ export default class Review extends View {
     this.sentAt = shared("review.sent")?.at;
     // Worktrees of this repo (to look at another one), uncommitted entries here, and the commit box.
     this.worktrees = []; this.dirty = 0; this.message = ""; this.committing = false;
-    this.wtAt = shared("review.pick-worktree")?.at;
     this.commitInput = InputState.new({ placeholder: "Commit 訊息" });
     this.commitInput.on("change", (_e, cx) => { this.message = this.commitInput.value(); cx.notify(); });
     this.commitInput.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
@@ -345,32 +343,39 @@ export default class Review extends View {
     this.refresh(cx, true);
   }
 
-  // The worktree menu: every worktree with its branch and how many uncommitted entries it holds.
+  // The worktree menu: every worktree with its branch and how many uncommitted entries it holds. It drops from the header
+  // inside this dialog; a popup would open at the last pointer position of the main window, not here.
   openWtMenu(cx) {
+    if (this.wtItems) { this.wtItems = null; cx.notify(); return; }
     const list = this.worktrees;
     cx.spawn(async (cx) => {
-      const items = await Promise.all(list.map(async (w) => {
+      this.wtItems = await Promise.all(list.map(async (w) => {
         const st = await exec("git", [...READ, "status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all"], { cwd: w.path, on: this.on }).catch(() => null);
-        return { path: w.path, branch: w.branch, detached: w.detached, dirty: st?.code === 0 ? dirtyCount(st.stdout) : null, current: w.path === this.root };
+        return { path: w.path, branch: w.branch, detached: w.detached, dirty: st?.code === 0 ? dirtyCount(st.stdout) : null };
       }));
-      openOverlay({ mod: "review", kind: "popup", width: 420, height: 56 + items.length * 52, at: "pointer", props: { wtMenu: { items } } });
+      cx.notify();
     });
   }
 
   renderWtMenu(t) {
-    const m = this.wtMenu;
-    return v_flex().id("wt-menu").size_full().bg(t.popover).text_color(t.foreground)
-      .child(div().px(12).pt(10).pb(6).text_size(12.5).font_semibold().child("選擇要審查的 worktree"))
-      .child(v_flex().id("wt-list").max_h(380).overflow_y_scrollbar().px(4).pb(6).children(m.items.map((w) => h_flex().id(`wt-${w.path}`).h(48).flex_none().px(10).gap(10).items_center().rounded(6).cursor_pointer()
-        .hover((x) => x.bg(t.hover)).bg(w.current ? t.selected : "#00000000")
-        .on_click(() => { setShared("review.pick-worktree", { at: Date.now(), root: w.path }); closeOverlay(m.overlay); })
-        .child(div().w(14).flex_none().text_color(t.accent).child(w.current ? "✓" : ""))
-        .child(v_flex().flex_1().min_w(0)
-          .child(h_flex().gap(8).items_center()
-            .child(div().truncate().text_size(13).font_semibold().child(nameOf(w.path)))
-            .child(div().flex_none().text_size(11).text_color(t.ansi2).child(w.detached ? "（detached）" : w.branch ?? ""))
-            .when(w.dirty > 0, (e) => e.child(div().flex_none().text_size(11).text_color(t.working).child(`${w.dirty} 個未提交`))))
-          .child(div().truncate().text_size(11).font_family(MONO).text_color(t.dim).child(w.path))))));
+    const close = (_e, cx) => { this.wtItems = null; cx.notify(); };
+    return v_flex().id("wt-backdrop").absolute().inset_0().pt(46).pl(20).items_start().on_click(close)
+      .child(v_flex().id("wt-menu").w(460).max_h(360).rounded(8).border_1().border_color(t.border).bg(t.popover).shadow_lg()
+        .on_click((_e, cx) => cx.stop_propagation())
+        .child(div().flex_none().px(12).pt(10).pb(6).text_size(12.5).font_semibold().child("選擇要審查的 worktree"))
+        .child(v_flex().id("wt-list").flex_1().min_h(0).overflow_y_scrollbar().px(4).pb(6).children(this.wtItems.map((w) => {
+          const current = w.path === this.root;
+          return h_flex().id(`wt-${w.path}`).h(48).flex_none().px(10).gap(10).items_center().rounded(6).cursor_pointer()
+            .hover((x) => x.bg(t.hover)).bg(current ? t.selected : "#00000000")
+            .on_click((_e, cx) => { this.wtItems = null; this.switchTo(w.path, cx); cx.notify(); })
+            .child(div().w(14).flex_none().text_color(t.accent).child(current ? "✓" : ""))
+            .child(v_flex().flex_1().min_w(0)
+              .child(h_flex().gap(8).items_center()
+                .child(div().truncate().text_size(13).font_semibold().child(nameOf(w.path)))
+                .child(div().flex_none().text_size(11).text_color(t.ansi2).child(w.detached ? "（detached）" : w.branch ?? ""))
+                .when(w.dirty > 0, (e) => e.child(div().flex_none().text_size(11).text_color(t.working).child(`${w.dirty} 個未提交`))))
+              .child(div().truncate().text_size(11).font_family(MONO).text_color(t.dim).child(w.path)));
+        }))));
   }
 
   // Commits everything in this worktree (add -A, commit), like the Changes panel's box.
@@ -393,15 +398,12 @@ export default class Review extends View {
 
   render(cx) {
     if (this.dialog) return this.dialog.render(cx);
-    if (this.wtMenu) return this.renderWtMenu(theme());
     // A review was sent from the send dialog: its comments are spent, and this dialog has done its job.
     const sent = shared("review.sent");
     if (sent?.at && sent.at !== this.sentAt) {
       this.sentAt = sent.at;
       if (!sent.ask) { this.drafts = []; this.saveDrafts(); this.refreshMarks(); cx.timer.after(1, () => closeOverlay(this.overlay)); }
     }
-    const picked = shared("review.pick-worktree");
-    if (picked?.at && picked.at !== this.wtAt) { this.wtAt = picked.at; cx.timer.after(1, (cx) => { this.switchTo(picked.root, cx); cx.notify(); }); }
     const t = theme(), files = this.files, cur = files[this.fileIdx], drafts = this.list();
     const c = diffColors(this.paletteId, t), colors = syntaxColors(t);
     const add = files.reduce((n, f) => n + f.add, 0), del = files.reduce((n, f) => n + f.del, 0);
@@ -524,9 +526,10 @@ export default class Review extends View {
         .child(Scrollbar.vertical("rv-rows").viewport_from_layout().absolute().inset_0()))
       .when(Boolean(this.sel || this.editing) && Boolean(cur), (e) => e.child(composer));
 
-    return v_flex().id("review").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13.5)
+    return v_flex().id("review").relative().size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13.5)
       .track_focus(this.handle).on_key_down((e, cx) => this.onKey(e, cx))
       .child(header)
-      .child(h_flex().flex_1().min_h(0).child(filesPanel).child(diffPane));
+      .child(h_flex().flex_1().min_h(0).child(filesPanel).child(diffPane))
+      .when(Boolean(this.wtItems), (e) => e.child(this.renderWtMenu(t)));
   }
 }
