@@ -24,17 +24,23 @@ export function startAgent(prog, { root, on, name, text, cx, done }) {
   const before = new Set(all.map((p) => p.pane));
   run("pane.split", { direction: "right", pane: target.pane, argv: prog.run });
   // The new pane, then its agent (first sign of life), then a moment for its prompt before the text goes in.
+  // Not every program shows up in agents() (no status reporting): once the pane exists, give the agent 10 s to be
+  // recognised, then send into the pane anyway. Only a pane that never appears is an error.
   let tries = 0, address = null;
+  const send = (cx) => cx.timer.after(1500, () => {
+    hc(["send", address, text])
+      .then((r) => done(r.code === 0 ? undefined : (r.stderr || r.stdout).trim().slice(0, 300) || "hc send 失敗"))
+      .catch((e) => done(String(e).slice(0, 300)));
+  });
   const wait = (cx) => {
-    if (++tries > 60) { done("agent 沒有在 30 秒內啟動，訊息沒有送出"); return; }
-    address ??= panes().find((p) => p.terminal && !before.has(p.pane))?.terminal ?? null;
-    if (address && agents().some((a) => a.address === address)) {
-      cx.timer.after(1500, () => {
-        hc(["send", address, text])
-          .then((r) => done(r.code === 0 ? undefined : (r.stderr || r.stdout).trim().slice(0, 300) || "hc send 失敗"))
-          .catch((e) => done(String(e).slice(0, 300)));
-      });
-    } else cx.timer.after(500, wait);
+    if (!address) {
+      if (++tries > 60) { done("新的 pane 沒有在 30 秒內出現，訊息沒有送出"); return; }
+      address = panes().find((p) => p.terminal && !before.has(p.pane))?.terminal ?? null;
+      if (!address) { cx.timer.after(500, wait); return; }
+      tries = 0;
+    }
+    if (agents().some((a) => a.address === address) || ++tries > 20) send(cx);
+    else cx.timer.after(500, wait);
   };
   cx.timer.after(500, wait);
 }
