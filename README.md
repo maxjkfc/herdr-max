@@ -126,7 +126,7 @@ Paste into any agent running inside Herdr:
 
 ## Review (`review`)
 
-The **審查** button in the Git panel's sync row (next to **↓ 拉取**) opens a read-only review dialog of the repo under the focused pane, the same layout as the commit dialog: a changed-files folder tree with a filter on the left, the selected file's syntax-colored diff on the right. Three scopes (keys `1` `2` `3`, remembered per repo; a branch that has left its base opens in the third):
+The **審查** button in the Git panel's sync row (next to **↓ 拉取**) opens a review dialog of the repo under the focused pane, the same layout as the commit dialog: a changed-files folder tree with a filter on the left, the selected file's syntax-colored diff on the right. Review is read-only for the repo; the only thing it writes is its own comment drafts. Three scopes (keys `1` `2` `3`, remembered per repo; a branch that has left its base opens in the third):
 
 | Scope | Compares |
 |---|---|
@@ -134,7 +134,13 @@ The **審查** button in the Git panel's sync row (next to **↓ 拉取**) opens
 | 2 最後一個 commit | the commit before `HEAD` → working tree (so the last commit plus anything uncommitted) |
 | 3 對 base | the merge-base with the base branch → working tree. Base is `origin/HEAD`, else `main`, else `master` |
 
-Untracked files are listed too (marked 新). Diffs are read per file when picked, with the same safe git flags as the Changes panel (no `index.lock`, no fsmonitor, no index rewrite). `j`/`k` switch files, `r` re-reads, `Esc` closes. Nothing is written. It is modelled on [herdr-reviewer](https://github.com/vytasgavelis/herdr-reviewer); comments on lines and sending them to an agent come next.
+Untracked files are listed too (marked 新). Diffs are read per file when picked, with the same safe git flags as the Changes panel (no `index.lock`, no fsmonitor, no index rewrite). `j`/`k` switch files, `r` re-reads, `Esc` closes. It is modelled on [herdr-reviewer](https://github.com/vytasgavelis/herdr-reviewer).
+
+**Comments → agent.**
+- Click a diff line to comment on it; click another line to widen a one-line selection to a range; click the same line again to deselect; click an `@@` header to select the whole hunk. Write the comment in the box below the diff and press **加入留言** (or `Cmd/Ctrl+Enter`). Commented lines get an accent edge.
+- Drafts are kept per repo and scope (they survive closing the dialog and restarting Herdr), listed under the file tree as **待送出留言**: click one to jump to its lines and edit it, `✕` deletes it. A draft finds its lines again after a reload by kind, line number and text, falling back to kind and text when only the number moved; if the lines are gone it is marked （過期）.
+- **送出審查 · N** opens the send dialog: the agents are listed with the one working in this repo (or its worktree) first, then one whose space is this repo, then the rest; add a note and send. The message names the repo and scope and lists every comment under `### file, lines a–b` with the quoted lines in a `diff` fence, sorted by file and line. It is sent with `hc send`; if the agent is working or blocked you confirm first, because the text is typed into its input. With no agent running you can start one that takes the review as its first task. After sending, the drafts are cleared and the dialog closes.
+- **Right-click** a line (or the selection, or a hunk header) to ask an agent about those lines: same dialog, with your question first and the quoted lines after it. Drafts are untouched.
 
 ## PR Diff Viewer
 
