@@ -541,8 +541,8 @@ export class Viewer {
   composer(i, t, cx) {
     const p = primer(t), busy = Boolean(this.busy), pr = this.pr(), open = this.open();
     const actions = upper(i.state) === "MERGED" ? [] : open
-      ? [button("close", this.typed ? "留言並關閉" : `關閉 ${pr ? "PR" : "Issue"}`, t, (_e, cx) => this.close("completed", cx), { enabled: !busy, small: true, icon: pr ? "pr-closed" : "issue-done", color: p.closed })]
-      : [button("reopen", "重新開啟", t, (_e, cx) => this.reopen(cx), { enabled: !busy, small: true, icon: pr ? "pr-open" : "issue-open", color: p.open })];
+      ? [button("close", this.typed ? "Comment & close" : `Close ${pr ? "PR" : "Issue"}`, t, (_e, cx) => this.close("completed", cx), { enabled: !busy, small: true, icon: pr ? "pr-closed" : "issue-done", color: p.closed })]
+      : [button("reopen", "Reopen", t, (_e, cx) => this.reopen(cx), { enabled: !busy, small: true, icon: pr ? "pr-open" : "issue-open", color: p.open })];
     return v_flex().flex_none().gap(8)
       .child(v_flex().rounded(7).border_1().border_color(this.typing ? t.accent : t.border).overflow_hidden().bg(t.background)
         .child(div().id("box").px(10).py(8).cursor_text()
@@ -551,7 +551,7 @@ export class Viewer {
         .child(h_flex().px(10).py(8).gap(6).items_center().border_t(1).border_color(t.border).bg(t.surface)
           .child(div().flex_1().text_size(11.5).text_color(t.dim).child("按 c 留言 · Esc 離開輸入 · Ctrl+Enter 送出"))
           .children(actions)
-          .child(button("comment", "送出留言", t, (_e, cx) => this.comment(cx), { primary: true, small: true, enabled: this.typed && !busy }))));
+          .child(button("comment", "Comment", t, (_e, cx) => this.comment(cx), { primary: true, small: true, enabled: this.typed && !busy }))));
   }
 
   aside(i, t, cx) {
@@ -594,7 +594,7 @@ export class Viewer {
 
     return v_flex().flex_none().gap(8).px(20).py(12).border_b(1).border_color(t.border).bg(t.surface)
       .child(h_flex().gap(8).items_center()
-        .when(this.trail.length > 0, (e) => e.child(button("back", "返回", t, (_e, cx) => this.goBack(cx), { icon: "back", small: true })))
+        .when(this.trail.length > 0, (e) => e.child(button("back", "Back", t, (_e, cx) => this.goBack(cx), { icon: "back", small: true })))
         .child(h_flex().h(24).px(8).gap(5).items_center().rounded(5).border_1().border_color(`${color}88`).bg(`${color}20`).text_color(color).text_size(12).font_semibold()
           .child(glyph(icon, 13, color)).child(state))
         .child(div().text_size(13).font_semibold().text_color(t.muted).child(`${this.repo} #${this.number}`))
@@ -606,7 +606,7 @@ export class Viewer {
           .child(button("github", "O", t, () => openUrl(i.url), { icon: "external", small: true, invisible: true, tooltip: "在 GitHub 開啟 [O]" }))
           .when(!pr, (x) => x.child(button("open-wt", "🌱 Worktree [W]", t, () => this.openWorktree(), { color: p.link, small: true, tooltip: "建立或切換至此 Issue 的 Worktree [W]" })))
           .when(pr && this.open(), (x) => x.child(button("checkout", "Checkout [X]", t, () => this.checkout(), { icon: "terminal", small: true, tooltip: "在新 Tab 執行 gh pr checkout [X]" })))
-          .child(button("agent", "派 Agent [A]", t, () => this.startAgent(), { primary: true, small: true, icon: "agent" })))
+          .child(button("agent", "Agent [A]", t, () => this.startAgent(), { primary: true, small: true, icon: "agent" })))
         .child(button("close-dialog", "Esc", t, () => closeOverlay(this.overlay), { icon: "close", small: true, invisible: true, tooltip: "關閉視窗 [Esc / Q]" })))
       .when(Boolean(i), (e) => e.child(h_flex().gap(10).items_center()
         .child(div().flex_1().min_w(0).truncate().text_size(17).font_semibold().text_color(t.foreground).child(i.title))

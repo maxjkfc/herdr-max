@@ -18,11 +18,13 @@ const FILE_ROW_H = 28, DIFF_ROW_H = 22, MAX_DIFF_ROWS = 5000;
 const PALETTE_KEY = "review.diffPalette", SCOPE_KEY = "review.scopes", DRAFTS_KEY = "review.drafts";
 // [id, label, what it compares]
 const SCOPES = [
-  ["work", "未提交", "工作目錄 vs HEAD"],
-  ["last", "最後一個 commit", "HEAD 的上一個 commit → 工作目錄（含未提交）"],
-  ["branch", "對 base", "與 base 分支分岔後的全部變更（含未提交）"],
+  ["work", "Uncommitted", "工作目錄 vs HEAD"],
+  ["last", "Last commit", "HEAD 的上一個 commit → 工作目錄（含未提交）"],
+  ["branch", "vs base", "與 base 分支分岔後的全部變更（含未提交）"],
 ];
 const SCOPE_ICONS = { work: "pencil", last: "commit", branch: "branch" };
+const SCOPE_COLORS = (t) => ({ work: t.ansi3, last: t.ansi2, branch: t.ansi4 });
+const ico = (name, color, size = 14) => svg(`mods/review/icons/${name}.svg`).size(size).flex_none().text_color(color);
 // What a scope means, for the message an agent gets.
 const SCOPE_WORDS = { work: "working tree vs HEAD", last: "the last commit plus uncommitted changes", branch: "everything since the branch left its base, plus uncommitted changes" };
 
@@ -396,10 +398,10 @@ export default class Review extends View {
         .on_click((_e, cx) => cx.stop_propagation())
         .child(h_flex().flex_none().px(12).pt(10).pb(6).gap(8).items_center()
           .child(div().flex_1().text_size(12.5).font_semibold().child("選擇要審查的 worktree"))
-          .when(checking, (e) => e.child(div().text_size(11).text_color(t.dim).child("檢查合併狀態…")))
+          .when(checking, (e) => e.child(div().text_size(11).text_color(t.dim).child("Checking merge status…")))
           .when(nMerged > 0, (e) => e.child(div().id("wt-merged-toggle").px(6).py(2).rounded(4).text_size(11).text_color(t.muted).cursor_pointer()
             .hover((x) => x.bg(t.hover)).on_click((_e, cx) => { this.showMerged = !this.showMerged; cx.notify(); })
-            .child(this.showMerged ? `隱藏已合併 (${nMerged})` : `顯示已合併 (${nMerged})`))))
+            .child(this.showMerged ? `Hide merged (${nMerged})` : `Show merged (${nMerged})`))))
         .child(v_flex().id("wt-list").max_h(300).overflow_y_scrollbar().px(4).pb(6).children(shown.map((w) => {
           const current = w.path === this.root;
           return h_flex().id(`wt-${w.path}`).h(48).flex_none().px(10).gap(10).items_center().rounded(6).cursor_pointer()
@@ -410,8 +412,8 @@ export default class Review extends View {
               .child(h_flex().gap(8).items_center()
                 .child(div().truncate().text_size(13).font_semibold().child(nameOf(w.path)))
                 .child(div().flex_none().text_size(11).text_color(t.ansi2).child(w.detached ? "（detached）" : w.branch ?? ""))
-                .when(Boolean(w.merged), (e) => e.child(div().flex_none().px(5).rounded(3).text_size(11).text_color(t.ansi5 ?? t.muted).border_1().border_color(t.border).child("已合併")))
-                .when(w.dirty > 0, (e) => e.child(div().flex_none().text_size(11).text_color(t.working).child(`${w.dirty} 個未提交`))))
+                .when(Boolean(w.merged), (e) => e.child(div().flex_none().px(5).rounded(3).text_size(11).text_color(t.ansi5 ?? t.muted).border_1().border_color(t.border).child("Merged")))
+                .when(w.dirty > 0, (e) => e.child(div().flex_none().text_size(11).text_color(t.working).child(`${w.dirty} uncommitted`))))
               .child(div().truncate().text_size(11).font_family(MONO).text_color(t.dim).child(w.path)));
         }))));
   }
@@ -449,30 +451,30 @@ export default class Review extends View {
     const add = files.reduce((n, f) => n + f.add, 0), del = files.reduce((n, f) => n + f.del, 0);
     const chip = (text, color, mono = false) => div().flex_none().max_w(220).truncate().h(20).px(6).flex().items_center().rounded(4).border_1()
       .border_color(`${color}66`).bg(`${color}18`).text_size(12).text_color(color).when(mono, (e) => e.font_family(MONO)).child(text);
-    // An icon (or a text/element) in a button; a function gets the button's text color. The words go in the tooltip.
-    const ico = (name, color, size = 14) => svg(`mods/review/icons/${name}.svg`).size(size).flex_none().text_color(color);
+    // A button's label is an element, or a function (textColor, on) => element; the words (when any) are universal git
+    // terms in English, and the tooltip says it in Chinese.
     const button = (id, label, on_click, on = false, tip = null) => div().id(id).h(26).px(8).flex().items_center().flex_none().rounded(6).border_1()
       .border_color(on ? t.accent : t.border).bg(on ? t.selected : "#00000000").text_size(12).text_color(on ? t.foreground : t.muted)
       .cursor_pointer().hover((s) => s.bg(t.hover)).when(Boolean(tip), (e) => e.tooltip(tip)).on_click(on_click)
-      .child(typeof label === "function" ? label(on ? t.foreground : t.muted) : label);
+      .child(typeof label === "function" ? label(on ? t.foreground : t.muted, on) : label);
 
     const scopeInfo = SCOPES.find((s) => s[0] === this.scope);
     const header = v_flex().flex_none().gap(8).px(20).py(12).border_b(1).border_color(t.border).bg(t.surface)
       .child(h_flex().gap(8).items_center()
         .child(chip("Review", t.accent))
         .child(this.worktrees.length > 1
-          ? button("rv-wt", (col) => h_flex().gap(5).items_center().child(ico("branch", col)).child(nameOf(this.root ?? "")).child(ico("chevron-down", col, 12)),
+          ? button("rv-wt", () => h_flex().gap(5).items_center().child(ico("branch", t.ansi2)).child(nameOf(this.root ?? "")).child(ico("chevron-down", t.muted, 12)),
             (_e, cx) => this.openWtMenu(cx), false, "選擇要審查的 worktree")
           : chip(nameOf(this.root ?? ""), t.muted))
         .when(Boolean(this.info?.branch), (e) => e.child(chip(this.info.branch, t.ansi2)))
         .when(this.scope === "branch" && Boolean(this.info?.base), (e) => e.child(chip(`base ${this.info.base}`, t.ansi4)))
         .child(div().flex_1())
-        .child(button("rv-submit", (col) => h_flex().gap(5).items_center().child(ico("send", col)).when(drafts.length > 0, (e) => e.child(String(drafts.length))),
+        .child(button("rv-submit", (_col, on) => h_flex().gap(5).items_center().child(ico("send", on ? t.accent : t.dim)).child(drafts.length ? `Send ${drafts.length}` : "Send"),
           () => this.submit(), drafts.length > 0, drafts.length ? `送出審查（${drafts.length} 則留言）給 agent` : "送出審查：先在程式碼行上留言"))
-        .child(button("rv-refresh", (col) => ico("refresh", col), (_e, cx) => this.refresh(cx), false, "重新讀取（r）"))
-        .child(button("rv-close", (col) => ico("close", col), () => closeOverlay(this.overlay), false, "關閉（Esc）")))
+        .child(button("rv-refresh", () => ico("refresh", t.ansi6), (_e, cx) => this.refresh(cx), false, "重新讀取（r）"))
+        .child(button("rv-close", () => ico("close", t.ansi1), () => closeOverlay(this.overlay), false, "關閉（Esc）")))
       .child(h_flex().gap(6).items_center()
-        .children(SCOPES.map(([id, label, info], i) => button(`rv-scope-${id}`, (col) => h_flex().gap(5).items_center().child(String(i + 1)).child(ico(SCOPE_ICONS[id], col)),
+        .children(SCOPES.map(([id, label, info], i) => button(`rv-scope-${id}`, (_col, on) => h_flex().gap(5).items_center().child(String(i + 1)).child(ico(SCOPE_ICONS[id], SCOPE_COLORS(t)[id])).child(label),
           (_e, cx) => this.setScope(id, cx), this.scope === id, `${i + 1} ${label}：${info}`)))
         .child(div().flex_1().min_w(0).truncate().pl(8).text_size(12).text_color(t.dim).child(scopeInfo?.[2] ?? "")));
 
@@ -496,7 +498,7 @@ export default class Review extends View {
 
     const filesPanel = v_flex().w(320).flex_none().h_full().border_r(1).border_color(t.border).bg(t.surface)
       .child(h_flex().flex_none().px(12).py(8).gap(8).items_center().border_b(1).border_color(t.border).text_size(12).text_color(t.muted)
-        .child(h_flex().gap(6).items_center().font_semibold().text_color(t.foreground).child(ico("diff", t.muted)).child(`(${files.length})`))
+        .child(h_flex().gap(6).items_center().font_semibold().text_color(t.foreground).child(ico("diff", t.accent)).child(`(${files.length})`))
         .child(div().flex_1())
         .child(div().text_color(c.add).child(`+${add}`)).child(div().pl(4).text_color(c.del).child(`−${del}`)))
       .when(this.loading, (e) => e.child(div().px(12).py(10).text_size(12).text_color(t.muted).child("正在讀取…")))
@@ -523,7 +525,7 @@ export default class Review extends View {
           .child(h_flex().flex_1().min_w(0).h(28).px(8).items_center().rounded(6).bg(t.input ?? t.background).border_1().border_color(this.typing ? t.accent : t.border)
             .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
             .child(Input.new(this.commitInput).flex_1().h_full().text_size(12.5).text_color(t.foreground)))
-          .child(button("rv-commit", (col) => this.committing ? svg("mods/workspace-chrome/spinner.svg").size(14).flex_none().text_color(col).spin(900) : h_flex().gap(5).items_center().child(ico("check", col)).child(String(this.dirty)),
+          .child(button("rv-commit", (_col, on) => this.committing ? svg("mods/workspace-chrome/spinner.svg").size(14).flex_none().text_color(t.muted).spin(900) : h_flex().gap(5).items_center().child(ico("check", on ? t.ansi2 : t.dim)).child(`Commit ${this.dirty}`),
             (_e, cx) => this.commit(cx), Boolean(this.message.trim()) && !this.committing, `提交 ${this.dirty} 個變更（git add -A 再 commit）`)))
         .child(div().truncate().text_size(11).text_color(t.dim).child(`add -A 並 commit ${this.dirty} 個變更到 ${this.info?.branch ?? "HEAD"}（${nameOf(this.root ?? "")}）`))))
       .when(drafts.length > 0, (e) => e.child(v_flex().id("rv-drafts").flex_none().max_h(210).overflow_y_scrollbar().border_t(1).border_color(t.border)
@@ -544,8 +546,8 @@ export default class Review extends View {
       .child(h_flex().gap(8).items_center()
         .child(div().flex_1().min_w(0).truncate().text_size(12).font_semibold()
           .child(`${editingDraft ? "編輯留言" : "留言"} · ${editingDraft ? `${editingDraft.path}:${lineLabel(editingDraft)}${this.stale.has(editingDraft.id) ? "（過期）" : ""}` : `${cur?.path ?? ""}:${this.selLabel()}`}`))
-        .child(button("rv-c-cancel", (col) => ico("close", col), (_e, cx) => { this.closeComposer(); cx.notify(); }, false, "取消"))
-        .child(button("rv-c-add", (col) => ico(editingDraft ? "check" : "plus", col), canAdd ? (_e, cx) => this.addComment(cx) : () => {}, canAdd, editingDraft ? "更新留言" : "加入留言（Cmd/Ctrl+Enter）")))
+        .child(button("rv-c-cancel", () => h_flex().gap(5).items_center().child(ico("close", t.ansi1)).child("Cancel"), (_e, cx) => { this.closeComposer(); cx.notify(); }, false, "取消"))
+        .child(button("rv-c-add", (_col, on) => h_flex().gap(5).items_center().child(ico(editingDraft ? "check" : "plus", on ? t.ansi2 : t.dim)).child(editingDraft ? "Update" : "Add"), canAdd ? (_e, cx) => this.addComment(cx) : () => {}, canAdd, editingDraft ? "更新留言" : "加入留言（Cmd/Ctrl+Enter）")))
       .child(div().rounded(6).border_1().border_color(this.typing ? t.accent : t.border).bg(t.input ?? t.background).px(10).py(6)
         .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
         .child(Textarea.new(this.composerInput).w_full().text_size(13).text_color(t.foreground)));
@@ -554,7 +556,7 @@ export default class Review extends View {
         .child(div().flex_1().min_w(0).truncate().font_family(MONO).font_semibold().text_color(t.foreground).child(cur?.path ?? ""))
         .when(Boolean(cur) && cur.add > 0, (e) => e.child(div().text_color(c.add).child(`+${cur.add}`)))
         .when(Boolean(cur) && cur.del > 0, (e) => e.child(div().text_color(c.del).child(`−${cur.del}`)))
-        .child(button("rv-palette", (col) => ico("contrast", col), (_e, cx) => { this.cyclePalette(); cx.notify(); }, false, `配色：${c.label}（點擊切換）`)))
+        .child(button("rv-palette", (_col, on) => ico("contrast", t.ansi5), (_e, cx) => { this.cyclePalette(); cx.notify(); }, false, `配色：${c.label}（點擊切換）`)))
       .child(div().flex_1().min_h(0).relative().font_family(MONO).text_size(12.5)
         .when(this.loadingFile, (e) => e.child(div().p(16).text_color(t.muted).child("正在讀取 diff…")))
         .when(!this.loadingFile && Boolean(cur?.binary) && this.rows.length === 0, (e) => e.child(div().p(16).text_color(t.dim).child("二進位檔案，沒有文字差異")))
