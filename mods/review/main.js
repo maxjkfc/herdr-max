@@ -360,10 +360,10 @@ export default class Review extends View {
   renderWtMenu(t) {
     const close = (_e, cx) => { this.wtItems = null; cx.notify(); };
     return v_flex().id("wt-backdrop").absolute().inset_0().pt(46).pl(20).items_start().on_click(close)
-      .child(v_flex().id("wt-menu").w(460).max_h(360).rounded(8).border_1().border_color(t.border).bg(t.popover).shadow_lg()
+      .child(v_flex().id("wt-menu").w(460).rounded(8).border_1().border_color(t.border).bg(t.popover).shadow_lg()
         .on_click((_e, cx) => cx.stop_propagation())
         .child(div().flex_none().px(12).pt(10).pb(6).text_size(12.5).font_semibold().child("選擇要審查的 worktree"))
-        .child(v_flex().id("wt-list").flex_1().min_h(0).overflow_y_scrollbar().px(4).pb(6).children(this.wtItems.map((w) => {
+        .child(v_flex().id("wt-list").max_h(300).overflow_y_scrollbar().px(4).pb(6).children(this.wtItems.map((w) => {
           const current = w.path === this.root;
           return h_flex().id(`wt-${w.path}`).h(48).flex_none().px(10).gap(10).items_center().rounded(6).cursor_pointer()
             .hover((x) => x.bg(t.hover)).bg(current ? t.selected : "#00000000")
