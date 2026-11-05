@@ -2,6 +2,7 @@ import { div } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea } from "gpui-base";
 import { agents, panes, spaces, knownAgents, hc, run, notify, closeOverlay, setShared, theme } from "herdr";
 import { matchAgents } from "./drafts.js";
+import { startAgent } from "./startagent.js";
 
 // The send dialog: the review (or a question about some lines) goes to one agent. The review dialog opens it with
 // { title, text, ask, root, on, count } and learns it was sent from shared("review.sent").
@@ -50,13 +51,14 @@ export class SendDialog {
     });
   }
 
-  // No agent is running: start one in a new tab with the message as its first task.
+  // No agent is running: start one (startagent.js: a split pane beside the repo's terminal in the current space).
   start(prog, cx) {
     if (!this.ready()) return;
-    const space = spaces().find((s) => s.folder && (this.root === s.folder || this.root.startsWith(`${s.folder}/`)));
-    this.sending = true; cx.notify();
-    run("tab.new", { name: "審查", folder: this.root, ...(space ? { space: space.id } : {}), argv: prog.run, task: this.message() });
-    this.sent(prog.name, cx);
+    this.sending = true; this.error = null; cx.notify();
+    startAgent(prog, {
+      root: this.root, on: this.on, name: "審查", text: this.message(), cx,
+      done: (err) => { if (err) { this.error = err; this.sending = false; cx.notify(); } else this.sent(prog.name, cx); },
+    });
   }
 
   onKey(e, cx) {

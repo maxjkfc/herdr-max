@@ -42,8 +42,8 @@ A developer-focused Herdr desktop layout (`layouts/main-custom.json`) and modula
   - `mods/git-graph/main.js` + `graph.js` (`mod.json`)
   - `mods/tabs-plus/main.js` + `graph.svg` (`mod.json`)
   - `mods/git-hub/main.js` (`mod.json`)
-  - `mods/git-remote/` (`main.js`, `viewer.js`, `actions.js`, `gh.js`, `platform.js`, `ui.js`, `brief.js`, `run.js`, `timeline.js`, `media.js`, `log.js`, `mod.json`)
-  - `mods/review/` (`main.js`, `send.js`, `drafts.js`, `worktrees.js`, `diff.js`, `diffview.js`, `filetree.js`, `highlight.js`, `mod.json`; `diff`/`diffview`/`filetree`/`highlight` are mirrors of the `git-remote` ones, see `scripts/check-mirrors.sh`; `drafts.js` and `worktrees.js` are pure and tested)
+  - `mods/git-remote/` (`main.js`, `viewer.js`, `actions.js`, `startagent.js`, `gh.js`, `platform.js`, `ui.js`, `brief.js`, `run.js`, `timeline.js`, `media.js`, `log.js`, `mod.json`)
+  - `mods/review/` (`main.js`, `send.js`, `drafts.js`, `worktrees.js`, `diff.js`, `diffview.js`, `filetree.js`, `highlight.js`, `startagent.js`, `mod.json`; `diff`/`diffview`/`filetree`/`highlight`/`startagent` are mirrors of the `git-remote` ones, see `scripts/check-mirrors.sh`; `drafts.js` and `worktrees.js` are pure and tested)
   - `mods/scrollback/main.js` (`mod.json`)
 - **Keys**: `keys.json` (`global`, `terminal`, `mod:tmux-prefix`, `mod:picker-copy`, `mod:worktree-plus`, `mod:git-remote`, `mod:git-graph`, `mod:scrollback`)
 

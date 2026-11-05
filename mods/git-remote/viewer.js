@@ -8,12 +8,12 @@ import { primer, glyph, spinner, ago, openUrl, issueState, prState, checksOf, gl
 import { ghJson, gh, localState } from "./gh.js";
 import { parseDiff } from "./diff.js";
 import { diffColors, diffRow, loadPaletteId, nextPaletteId, savePaletteId, syntaxColors, tokenizeRows } from "./diffview.js";
-import { issueBrief, prBrief } from "./brief.js";
+import { issueBrief, prBrief, worktreeOf } from "./brief.js";
 import { pickAgent, openIssueWorktree } from "./actions.js";
 
 const FIELDS = {
   issue: "number,title,body,author,state,stateReason,labels,assignees,createdAt,updatedAt,comments,url,milestone,reactionGroups,closedByPullRequestsReferences",
-  pr: "number,title,body,author,state,isDraft,labels,assignees,createdAt,updatedAt,comments,url,milestone,reactionGroups,headRefName,baseRefName,headRefOid,additions,deletions,changedFiles,reviewDecision,statusCheckRollup,mergeable,reviewRequests,reviews,closingIssuesReferences,mergedAt",
+  pr: "number,title,body,author,state,isDraft,labels,assignees,createdAt,updatedAt,comments,url,milestone,reactionGroups,headRefName,baseRefName,headRefOid,additions,deletions,changedFiles,reviewDecision,statusCheckRollup,mergeable,reviewRequests,reviews,closingIssuesReferences,mergedAt,isCrossRepository",
 };
 const LINK = /^https?:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(issues|pull)\/(\d+)(?:[/?#].*)?$/;
 const ROLE = { OWNER: "Owner", MEMBER: "Member", COLLABORATOR: "Collaborator", CONTRIBUTOR: "Contributor" };
@@ -310,7 +310,7 @@ export class Viewer {
     pickAgent({
       name: `${this.pr() ? "PR " : ""}#${i.number} ${this.repo.split("/")[1]}`,
       brief: this.brief(),
-      folder: l?.folder ?? null,
+      folder: (this.pr() ? worktreeOf(this.localState, i)?.path : null) ?? l?.folder ?? null,
       space: l?.space ?? null,
       issue: this.pr() ? null : { number: i.number, title: i.title },
     });

@@ -76,7 +76,12 @@ export function issueBrief(i, { local } = {}) {
   ].join("\n");
 }
 
+// The worktree of the local clone that already has `branch` checked out ({ path, branch }), so an agent works there
+// instead of checking the branch out somewhere else (never for a fork PR: its branch name is not ours). `local.worktrees` is every worktree of the clone (gh.js localState).
+export const worktreeOf = (local, pr) => (pr?.headRefName && !pr.isCrossRepository && (local?.worktrees ?? []).find((w) => w.branch === pr.headRefName)) || null;
+
 export function prBrief(pr, { local } = {}) {
+  const wt = worktreeOf(local, pr);
   const failed = (pr.checks?.failed ?? []).map((c) => `- ${c.workflow ? `${c.workflow} / ` : ""}${c.name}: ${c.conclusion}${c.url ? ` (${c.url})` : ""}`);
   const reviews = (pr.reviews ?? []).filter((r) => r.body?.trim() || r.state === "CHANGES_REQUESTED").slice(-6);
   const comments = (pr.comments ?? []).filter((c) => c.body?.trim()).slice(-6);
@@ -86,6 +91,7 @@ export function prBrief(pr, { local } = {}) {
     "## Context",
     `- Link: ${pr.url}`,
     `- ${place(pr.repo, local)}`,
+    ...(wt ? [`- Worktree for this PR: ${wt.path} (branch \`${wt.branch}\` is checked out there: test and edit here)`] : []),
     `- Branch \`${pr.headRefName}\` → \`${pr.baseRefName}\` · +${pr.additions ?? "?"} −${pr.deletions ?? "?"} · ${pr.changedFiles ?? "?"} file(s)`,
     `- Review: ${{ APPROVED: "approved", CHANGES_REQUESTED: "changes requested", REVIEW_REQUIRED: "review required" }[pr.reviewDecision] ?? "no decision"} · Checks: ${pr.checks?.state ?? "none"}`,
     ...(pr.closingIssuesReferences?.length ? [`- Closes: ${pr.closingIssuesReferences.map((x) => `#${x.number}`).join(", ")}`] : []),
@@ -99,7 +105,9 @@ export function prBrief(pr, { local } = {}) {
     "",
     ...CONVENTIONS, "",
     "## Steps",
-    `1. Get the branch: \`gh pr checkout ${pr.number}\`. Read the full diff (\`gh pr diff ${pr.number}\`) and the line comments (\`gh api repos/${pr.repo}/pulls/${pr.number}/comments\`).`,
+    wt
+      ? `1. Work in \`${wt.path}\` (already on \`${pr.headRefName}\`): \`cd\` there first. Do NOT run \`gh pr checkout\` or switch branches, and don't edit other worktrees. Read the full diff (\`gh pr diff ${pr.number}\`) and the line comments (\`gh api repos/${pr.repo}/pulls/${pr.number}/comments\`).`
+      : `1. Get the branch: \`gh pr checkout ${pr.number}\`. Read the full diff (\`gh pr diff ${pr.number}\`) and the line comments (\`gh api repos/${pr.repo}/pulls/${pr.number}/comments\`).`,
     failed.length ? "2. Reproduce each failing check locally (`gh run view <id> --log-failed`) and fix the cause." : "2. Review the diff like a demanding reviewer: bugs, edge cases, missing tests, needless code.",
     "3. Address each unresolved review comment: fix it, or explain why not.",
     "4. Rerun the repository's checks (tests, lint, build).",

@@ -2,6 +2,7 @@ import { v_flex, h_flex } from "gpui-base";
 import { div, svg, image } from "gpui-kit";
 import { run, notify, openOverlay, closeOverlay, knownAgents, spaces, panes, exec, home, shared, setShared, nextCommand } from "herdr";
 import { glyph, under } from "./ui.js";
+import { startAgent } from "./startagent.js";
 
 export function copied(cx, text, title, body) {
   cx.write_to_clipboard(text);
@@ -87,20 +88,6 @@ export function pickAgent(task) {
   openOverlay({ mod: "git-remote", kind: "popup", width: 280, height: 340, at: under(280), props: { agentMenu: task } });
 }
 
-// Starts the agent in a new tab (or a new worktree space when `inWorktree` is on and `issue` is present).
-export async function launch(agent, { name, brief, folder, space, issue, inWorktree }) {
-  if (inWorktree && issue) {
-    await openIssueWorktree({ issue, folder, space, argv: agent.run, task: brief });
-    return;
-  }
-  const args = { name: name.slice(0, 48), argv: agent.run, task: brief };
-  const homeSpace = space ?? spaces().find((s) => !s.machine && folder && s.folder === folder)?.id ?? spaces().find((s) => s.active)?.id;
-  if (homeSpace) args.space = homeSpace;
-  if (folder) args.folder = folder;
-  run("tab.new", args);
-  notify({ title: `${agent.name} started`, body: name, level: "success", timeout: 3000 });
-}
-
 export class AgentMenu {
   constructor(task, overlay, cx) {
     this.task = task; this.overlay = overlay; this.agents = null; this.idx = 0;
@@ -121,12 +108,26 @@ export class AgentMenu {
     });
   }
   pick(a, cx) {
-    if (!a) return;
-    cx.spawn(async () => {
-      try { await launch(a, { ...this.task, inWorktree: this.inWorktree }); }
-      catch (err) { notify({ title: "啟動失敗", body: String(err?.message ?? err), level: "error" }); }
+    if (!a || this.starting) return;
+    const { name, brief, folder, space, issue } = this.task;
+    if (this.inWorktree && issue) {
+      cx.spawn(async () => {
+        try { await openIssueWorktree({ issue, folder, space, argv: a.run, task: brief }); }
+        catch (err) { notify({ title: "啟動失敗", body: String(err?.message ?? err), level: "error" }); }
+      });
+      closeOverlay(this.overlay);
+      return;
+    }
+    // The menu stays up while the agent comes up (a split pane needs the message sent once it is running).
+    this.starting = a.name; this.error = null; cx.notify();
+    startAgent(a, {
+      root: folder, name, text: brief, cx,
+      done: (err) => {
+        if (err) { this.error = err; this.starting = null; cx.notify(); return; }
+        notify({ title: `${a.name} started`, body: name, level: "success", timeout: 3000 });
+        closeOverlay(this.overlay);
+      },
     });
-    closeOverlay(this.overlay);
   }
   onKey(e, cx) {
     const k = e.key, list = this.agents ?? [];
@@ -153,7 +154,7 @@ export class AgentMenu {
       .when(hasIssue, (e) => e.child(h_flex().id("agent-wt-toggle").h(28).px(8).mb(4).gap(6).items_center().rounded(6).cursor_pointer()
         .bg(this.inWorktree ? t.selected : t.raised).border_1().border_color(this.inWorktree ? t.accent : t.border)
         .on_click((_e, cx) => { this.inWorktree = !this.inWorktree; cx.notify(); })
-        .child(div().text_size(12).child(this.inWorktree ? "🌱 在新 Worktree 啟動並綁定 [W]" : "在目前 Space 開新 Tab 啟動 [W]"))))
+        .child(div().text_size(12).child(this.inWorktree ? "🌱 在新 Worktree 啟動並綁定 [W]" : "在目前 Space 啟動（有終端就切 pane）[W]"))))
       .when(!list, (e) => e.child(div().px(8).py(6).text_color(t.muted).child("正在讀取已安裝的 Agent…")))
       .when(list?.length === 0, (e) => e.child(div().px(8).py(6).text_size(12).text_color(t.muted).child("尚未設定 Agent（請在 programs.json 新增）")))
       .children((list ?? []).map((a, n) => {
@@ -167,6 +168,7 @@ export class AgentMenu {
           .child(div().text_size(11).text_color(t.dim).child(`[${n + 1}]`));
       }))
       .child(div().flex_1())
+      .when(Boolean(this.starting || this.error), (e) => e.child(div().px(8).py(4).text_size(12).text_color(this.error ? t.ansi1 : t.muted).child(this.error ?? `正在啟動 ${this.starting}…`)))
       .child(h_flex().px(8).py(6).gap(6).items_center().border_t(1).border_color(t.border).text_size(11).text_color(t.dim)
         .child(glyph("folder", 12, t.dim)).child(div().truncate().child(this.task.folder ?? "本機尚未 clone：Agent 會自行 clone")));
   }
