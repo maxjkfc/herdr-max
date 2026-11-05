@@ -126,7 +126,7 @@ Paste into any agent running inside Herdr:
 
 ## Review (`review`)
 
-The **審查** button in the Git panel's sync row (next to **↓ 拉取**) opens a review dialog of the repo under the focused pane, the same layout as the commit dialog: a changed-files folder tree with a filter on the left, the selected file's syntax-colored diff on the right. Review is read-only for the repo; the only thing it writes is its own comment drafts. Three scopes (keys `1` `2` `3`, remembered per repo; a branch that has left its base opens in the third):
+The **審查** button in the Git panel's sync row (next to **↓ 拉取**) opens a review dialog of the repo under the focused pane, the same layout as the commit dialog: a changed-files folder tree with a filter on the left, the selected file's syntax-colored diff on the right. It also covers what the Changes panel does: the **worktree** button in the header (shown when the repo has more than one worktree) lists every worktree with its branch and how many uncommitted entries it holds, so you can look at a worktree an agent works in without focusing a terminal there (each worktree has its own scope and comment drafts); and when the shown worktree has uncommitted changes, a commit box under the file tree runs `git add -A` and `git commit` there (the box says how many changes go to which branch and worktree). Apart from that box and its own comment drafts, review writes nothing. Three scopes (keys `1` `2` `3`, remembered per repo; a branch that has left its base opens in the third):
 
 | Scope | Compares |
 |---|---|
@@ -150,7 +150,7 @@ In the PR dialog the changed files are a column on the left of the diff (virtual
 
 | Command | What it checks |
 |---|---|
-| `bun test tests/` | Pure logic: remote-URL platform detection (`platform.js`), unified-diff parsing (`diff.js`), the changed-files folder tree (`filetree.js`), the syntax tokenizer (`highlight.js`). |
+| `bun test tests/` | Pure logic: remote-URL platform detection (`platform.js`), unified-diff parsing (`diff.js`), the changed-files folder tree (`filetree.js`), the syntax tokenizer (`highlight.js`), review drafts / messages / agent matching (`review/drafts.js`), worktree list parsing (`review/worktrees.js`). |
 | `scripts/check-mirrors.sh` | Files that must be identical copies because a mod cannot import another mod's files (`platform.js`, `diff.js`, `filetree.js`, `highlight.js`, `diffview.js`). Add pairs to `PAIRS` in the script. |
 | `scripts/diff-live.sh [-d]` | What the repo ships vs what runs in `~/.config/herdr-app` (`HERDR_APP_HOME`): lists differing or missing files, `-d` prints the diffs. Run it before opening a PR so live fixes don't stay out of the repo. |
 
