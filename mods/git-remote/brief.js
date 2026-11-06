@@ -1,6 +1,6 @@
 // Briefs handed to a coding agent: the context it needs, the task, how to check it, how to report.
 // GitHub content goes inside tags and is declared as data, so an issue can't steer the agent.
-// Written in English (fewer tokens, no language bleed into commits); the final report is in Traditional Chinese.
+// Written in English (fewer tokens, no language bleed into commits); everything said to the person is in Traditional Chinese.
 
 const names = (items) => (items ?? []).map((x) => typeof x === "string" ? x : x.name ?? x.login).filter(Boolean).join(", ") || "none";
 const who = (u) => u?.login ?? u ?? "?";
@@ -33,7 +33,7 @@ const RULES = [
   "- Fix the cause, not the symptom. No disabled tests, no bypassed checks.",
   "- Nothing public without my approval: no push (I push myself), no GitHub comment, close, merge or release.",
   "- Commits: the repository's format. Otherwise Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`), imperative, subject at most 50 characters with no trailing period, body only to explain why. One commit per coherent step, tests passing at each.",
-  "- Language: code, comments, commits and branches in the repository's language (usually English).",
+  "- Language: everything you say to me (plans, progress, questions, report) in Traditional Chinese / 繁體中文, technical terms in English. Code, comments, commits and branches in the repository's language (usually English).",
   "- Be economical: search narrowly (`rg`, definitions, nearby tests) instead of reading whole directories; run the targeted test first and the full suite once at the end.",
 ];
 
