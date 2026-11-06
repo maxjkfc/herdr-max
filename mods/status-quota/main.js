@@ -5,6 +5,7 @@ import {
   exec,
   home,
   layout,
+  notify,
   openOverlay,
   props,
   run,
@@ -12,6 +13,15 @@ import {
   shared,
   theme,
 } from "herdr";
+import { alertMessage, fmtDuration, itemKey, step } from "./alerts.js";
+
+const STATE_KEY = "status-quota.alert-state";
+
+// "約 2h 10m 後用盡" when, at the recent pace, a window runs out before it resets.
+const etaText = (p, it) => {
+  const e = shared("status-quota.eta")?.[itemKey(p, it)];
+  return e ? `約 ${fmtDuration(e.ms)} 後用盡` : "";
+};
 
 const scriptPath = () => `${home()}/.config/herdr-app/mods/status-quota/fetch-quota.py`;
 const POLL_MS = 120_000;
@@ -106,12 +116,30 @@ export default class StatusQuota extends View {
       const args = force ? [scriptPath(), "--force"] : [scriptPath()];
       const r = await exec("python3", args);
       if (r.code === 0 && r.stdout.trim()) {
-        setShared("status-quota.data", JSON.parse(r.stdout));
+        const data = JSON.parse(r.stdout);
+        setShared("status-quota.data", data);
+        if (!props()?.overlay) {
+          try { this.checkAlerts(data); }
+          catch (e) { notify({ title: "額度預警失敗", body: String(e?.message ?? e), level: "error" }); }
+        }
       }
     } catch {}
     this.loading = false;
     setShared("status-quota.loading", false);
     cx.notify();
+  }
+
+  // Notify when a window newly crosses the low / critical threshold, and update the run-out estimates.
+  checkAlerts(data) {
+    let state = null;
+    try { state = JSON.parse(localStorage.getItem(STATE_KEY) ?? "null"); } catch {}
+    const { state: next, alerts, eta } = step(data?.providers, state, Date.now());
+    localStorage.setItem(STATE_KEY, JSON.stringify(next));
+    setShared("status-quota.eta", eta);
+    if (alerts.length) {
+      const m = alertMessage(alerts, (p) => parseProviderHeader(p).title + (p.id?.startsWith("agy-") ? ` ${p.id.slice(4)}` : ""));
+      notify({ ...m, timeout: 10000 });
+    }
   }
 
   openDetailPopup() {
@@ -266,7 +294,7 @@ export default class StatusQuota extends View {
                                 .truncate()
                                 .text_size(10.5)
                                 .text_color(t.dim)
-                                .child(it.resetText ?? "")
+                                .child([it.resetText ?? "", etaText(p, it)].filter(Boolean).join(" · "))
                             );
                         })
                       )
@@ -282,7 +310,7 @@ export default class StatusQuota extends View {
     const { title, badge } = parseProviderHeader(p);
     const tip =
       (p.items ?? [])
-        .map((it) => `${it.fullLabel || it.label}: 剩 ${it.remaining}% (${it.resetText || ""})`)
+        .map((it) => `${it.fullLabel || it.label}: 剩 ${it.remaining}% (${it.resetText || ""})${etaText(p, it) ? ` · ${etaText(p, it)}` : ""}`)
         .join("  |  ") ||
       p.error ||
       p.name;
