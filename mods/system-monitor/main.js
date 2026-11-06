@@ -15,6 +15,21 @@ echo "if=$IF"
 echo "ts=$(tailscale ip -4 2>/dev/null | head -1)"
 echo "pub=$(curl -s -m 4 https://api.ipify.org 2>/dev/null)"`;
 
+// Cumulative bytes in/out of the default interface and of the one carrying the Tailscale IP
+// ("rx tx" per line, from `netstat -ib`). Two samples give a rate. The public IP is the
+// router's address, not an interface, so its traffic is the default interface's.
+const TRAF_CMD = `export PATH="$PATH:/usr/local/bin:/opt/homebrew/bin:/Applications/Tailscale.app/Contents/MacOS"
+IF=$(route -n get default 2>/dev/null | awk '/interface:/{print $2}')
+TS=$(tailscale ip -4 2>/dev/null | head -1)
+TSIF=""
+[ -n "$TS" ] && TSIF=$(ifconfig | awk -v ip="$TS" '/^[a-z0-9]+:/{i=$1; sub(":","",i)} $1=="inet" && $2==ip {print i; exit}')
+cnt() { [ -n "$1" ] && netstat -ib | awk -v i="$1" '$1==i && $3 ~ /^<Link/ {print $7, $10; exit}'; }
+echo "lan=$(cnt "$IF")"
+echo "ts=$(cnt "$TSIF")"`;
+
+const fmtRate = (b) =>
+  b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB/s` : b >= 1024 ? `${Math.round(b / 1024)} KB/s` : `${Math.round(b)} B/s`;
+
 const INTERVALS = [
   [2000, "2s"],
   [5000, "5s"],
@@ -32,7 +47,10 @@ export default class SystemMonitor extends View {
   init(_props, cx) {
     this.handle = cx.focus_handle();
     this.net = null;
+    this.prev = {};
+    this.rate = {};
     this.fetchNet(cx);
+    cx.timer.after(1500, () => this.fetchTraffic(cx));
     cx.timer.after(40, () => this.handle.focus());
   }
 
@@ -54,9 +72,38 @@ export default class SystemMonitor extends View {
     });
   }
 
+  // One sample of the byte counters; the rate is the difference to the previous sample.
+  fetchTraffic(cx) {
+    if (this.trafBusy) return;
+    this.trafBusy = true;
+    cx.spawn(async (cx) => {
+      try {
+        const r = await exec("sh", ["-c", TRAF_CMD]);
+        const now = Date.now();
+        for (const line of r.stdout.split("\n")) {
+          const i = line.indexOf("=");
+          if (i < 0) continue;
+          const key = line.slice(0, i);
+          const [rx, tx] = line.slice(i + 1).trim().split(/\s+/).map(Number);
+          if (!Number.isFinite(rx) || !Number.isFinite(tx)) { delete this.prev[key]; delete this.rate[key]; continue; }
+          const p = this.prev[key];
+          if (p && now - p.at >= 800) {
+            const dt = (now - p.at) / 1000;
+            // A counter that went down (interface reset) has no meaningful rate.
+            this.rate[key] = rx >= p.rx && tx >= p.tx ? { down: (rx - p.rx) / dt, up: (tx - p.tx) / dt } : undefined;
+          }
+          if (!p || now - p.at >= 800) this.prev[key] = { at: now, rx, tx };
+        }
+      } catch { /* keep the last rates */ }
+      this.trafBusy = false;
+      cx.notify();
+    });
+  }
+
   refreshAll(cx) {
     setShared("sys.refresh", Date.now());
     this.fetchNet(cx);
+    this.fetchTraffic(cx);
   }
 
   bar(t, pct, color, h = 5) {
@@ -87,16 +134,20 @@ export default class SystemMonitor extends View {
       .child(div().font_semibold().text_color(color ?? t.foreground).child(value));
   }
 
-  ipLine(t, name, value, ok) {
+  ipLine(t, name, value, ok, rate) {
     return h_flex().items_center().gap(8).h(17)
       .child(div().size(6).rounded(3).flex_none().bg(ok ? t.done : t.dim))
       .child(div().flex_1().text_color(t.muted).child(name))
+      .when(Boolean(rate), (el) => el.child(div().text_size(10).text_color(t.dim)
+        .child(`↓ ${fmtRate(rate.down)}  ↑ ${fmtRate(rate.up)}`)))
       .child(div().font_semibold().text_color(ok ? t.foreground : t.dim).child(value));
   }
 
   render(cx) {
     const t = theme();
     const s = shared("sys.stats");
+    // Sample the traffic counters whenever the status poll has produced fresh stats.
+    if (s && s.at !== this.sampledAt) { this.sampledAt = s.at; this.fetchTraffic(cx); }
     const every = shared("sys.interval") ?? 8000;
     const close = () => closeOverlay(props()?.overlay);
 
@@ -129,8 +180,8 @@ export default class SystemMonitor extends View {
 
     const ip = (v, none) => v || (this.net ? none : "查詢中…");
     const network = this.card(t, `網路${this.net?.if ? ` · ${this.net.if}` : ""}`,
-      this.ipLine(t, "內部 IP", ip(this.net?.lan, "未連線"), Boolean(this.net?.lan)),
-      this.ipLine(t, "Tailscale", ip(this.net?.ts, "未啟用"), Boolean(this.net?.ts)),
+      this.ipLine(t, "內部 IP", ip(this.net?.lan, "未連線"), Boolean(this.net?.lan), this.rate.lan),
+      this.ipLine(t, "Tailscale", ip(this.net?.ts, "未啟用"), Boolean(this.net?.ts), this.rate.ts),
       this.ipLine(t, "對外 IP", ip(this.net?.pub, "無法取得"), Boolean(this.net?.pub)));
 
     if (!s) return frame.child(head).child(segmented).child(network);
