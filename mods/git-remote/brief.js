@@ -46,6 +46,15 @@ const REPORT = [
   "Don't paste whole logs: quote the relevant lines.",
 ];
 
+const REVIEW_REPORT = [
+  "## Report (in Traditional Chinese / 繁體中文, keep technical terms in English, short bullets)",
+  "1. Verdict in one line: ready to merge / changes needed / needs discussion.",
+  "2. Findings, most severe first, each as `[P0-P3] file:line — what is wrong, the quoted code that shows it, suggested fix`. P0 blocks the merge, P3 is a nit.",
+  "3. If you found nothing, say so plainly; don't pad the list.",
+  "4. Not covered: what you did not read or run, and why.",
+  "Don't paste whole logs or diffs: quote the relevant lines.",
+];
+
 export function issueBrief(i, { local } = {}) {
   const comments = (i.comments ?? []).filter((c) => c.body?.trim()).slice(-10);
   return [
@@ -85,8 +94,15 @@ export function prBrief(pr, { local } = {}) {
   const failed = (pr.checks?.failed ?? []).map((c) => `- ${c.workflow ? `${c.workflow} / ` : ""}${c.name}: ${c.conclusion}${c.url ? ` (${c.url})` : ""}`);
   const reviews = (pr.reviews ?? []).filter((r) => r.body?.trim() || r.state === "CHANGES_REQUESTED").slice(-6);
   const comments = (pr.comments ?? []).filter((c) => c.body?.trim()).slice(-6);
+  // Failing checks or requested changes: fix them. Otherwise the person wants a review, so the agent changes nothing.
+  const fix = failed.length > 0 || pr.reviewDecision === "CHANGES_REQUESTED";
+  const diffStep = `Start with \`gh pr diff ${pr.number} --stat\`; skip lockfiles and generated files and read the rest file by file. Read the line comments with \`gh api --paginate repos/${pr.repo}/pulls/${pr.number}/comments\`.`;
   return [
-    `# Move pull request ${pr.repo}#${pr.number} forward: ${pr.title}`,
+    `# ${fix ? "Fix" : "Review"} pull request ${pr.repo}#${pr.number}: ${pr.title}`,
+    "",
+    fix
+      ? "Mode: FIX. Resolve the failing checks and the requested changes below; commit locally."
+      : "Mode: REVIEW ONLY. Do not edit, create or delete files, do not commit, do not push. Report findings only.",
     "",
     "## Context",
     `- Link: ${pr.url}`,
@@ -106,14 +122,20 @@ export function prBrief(pr, { local } = {}) {
     ...CONVENTIONS, "",
     "## Steps",
     wt
-      ? `1. Work in \`${wt.path}\` (already on \`${pr.headRefName}\`): \`cd\` there first. Do NOT run \`gh pr checkout\` or switch branches, and don't edit other worktrees. Read the full diff (\`gh pr diff ${pr.number}\`) and the line comments (\`gh api repos/${pr.repo}/pulls/${pr.number}/comments\`).`
-      : `1. Get the branch: \`gh pr checkout ${pr.number}\`. Read the full diff (\`gh pr diff ${pr.number}\`) and the line comments (\`gh api repos/${pr.repo}/pulls/${pr.number}/comments\`).`,
-    failed.length ? "2. Reproduce each failing check locally (`gh run view <id> --log-failed`) and fix the cause." : "2. Review the diff like a demanding reviewer: bugs, edge cases, missing tests, needless code.",
-    "3. Address each unresolved review comment: fix it, or explain why not.",
-    "4. Rerun the repository's checks (tests, lint, build).",
-    "5. Local commits per the Rules. I'll push myself after reviewing.",
+      ? `1. Work in \`${wt.path}\` (already on \`${pr.headRefName}\`): \`cd\` there first. Do NOT run \`gh pr checkout\` or switch branches, and don't edit other worktrees. ${diffStep}`
+      : `1. Get the branch: \`gh pr checkout ${pr.number}\`. ${diffStep}`,
+    failed.length ? "2. Reproduce each failing check locally (`gh run view <id> --log-failed`) and find the cause." : "2. Judge the diff like a demanding reviewer: correctness, edge cases, missing or weak tests, security, needless code. Run the targeted tests when that is cheap.",
+    ...(fix
+      ? [
+        "3. Fix the cause of each failing check and address each unresolved review comment: fix it, or explain why not.",
+        "4. Rerun the repository's checks (tests, lint, build).",
+        "5. Local commits per the Rules. I'll push myself after reviewing.",
+      ]
+      : reviews.length || comments.length
+        ? ["3. For each existing review comment, say whether it is resolved, still valid or wrong. Do not fix anything."]
+        : []),
     "",
-    ...RULES, "", ...REPORT,
+    ...RULES, "", ...(fix ? REPORT : REVIEW_REPORT),
   ].join("\n");
 }
 

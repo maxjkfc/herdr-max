@@ -27,3 +27,21 @@ test("a fork PR never uses a local worktree, even when the branch name matches",
   expect(worktreeOf(local, fork)).toBeNull();
   expect(prBrief(fork, { local })).toContain("1. Get the branch: `gh pr checkout 7`");
 });
+
+test("a PR with nothing failing is a read-only review with a findings report", () => {
+  const text = prBrief(pr, { local });
+  expect(text).toContain("Mode: REVIEW ONLY");
+  expect(text).toContain("Do not edit, create or delete files");
+  expect(text).toContain("[P0-P3] file:line");
+  expect(text).not.toContain("Local commits per the Rules");
+});
+
+test("failing checks or requested changes switch the brief to fix mode", () => {
+  const failing = prBrief({ ...pr, checks: { state: "FAILURE", failed: [{ name: "test", conclusion: "failure" }] } }, { local });
+  const changes = prBrief({ ...pr, reviewDecision: "CHANGES_REQUESTED" }, { local });
+  for (const text of [failing, changes]) {
+    expect(text).toContain("Mode: FIX");
+    expect(text).toContain("Local commits per the Rules");
+    expect(text).not.toContain("REVIEW ONLY");
+  }
+});
