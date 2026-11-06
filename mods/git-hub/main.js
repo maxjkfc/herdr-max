@@ -103,7 +103,7 @@ export default class GitHubSwitcher extends View {
   // Fast-forward only: never creates a merge commit or rewrites local work.
   pull(cx) {
     const s = this.sync;
-    if (!s?.repo || !s.upstream || !(s.behind > 0) || this.busy) return;
+    if (!s?.repo || !s.upstream || this.busy) return;
     this.busy = true;
     cx.notify();
     cx.spawn(async (cx) => {
@@ -152,8 +152,9 @@ export default class GitHubSwitcher extends View {
         .when(s.ahead > 0, (e) => e.child(label(`↑${s.ahead}`, t.accent)))
         .when(s.upstream && s.behind === 0 && s.ahead === 0, (e) => e.child(div().text_size(11).text_color(t.dim).child("已同步")));
     }
-    // Only a branch that is behind its upstream has anything to pull.
-    const needs = Boolean(s?.repo && s.upstream) && s.behind > 0 && !this.busy;
+    // Pull is always available (git pull fetches first, so it can't be stale); it is highlighted when the last fetch shows commits to pull.
+    const can = Boolean(s?.repo && s.upstream) && !this.busy;
+    const needs = can && s.behind > 0;
     return h_flex().h(32).flex_none().px(10).gap(8).items_center().border_b(1).border_color(t.border)
       .child(h_flex().flex_1().min_w(0).child(info))
       .child(div().id("git-review").h(24).px(10).flex_none().flex().items_center().rounded(6)
@@ -168,13 +169,13 @@ export default class GitHubSwitcher extends View {
       .child(div().id("git-pull").h(24).px(10).flex_none().flex().items_center().rounded(6)
         .border_1().border_color(needs ? t.accent : t.border)
         .bg(needs ? t.selected : t.surface)
-        .text_size(12).font_semibold().text_color(needs ? t.foreground : t.dim)
-        .when(needs, (e) => e.cursor_pointer().hover((x) => x.bg(t.hover)))
+        .text_size(12).font_semibold().text_color(can ? t.foreground : t.dim)
+        .when(can, (e) => e.cursor_pointer().hover((x) => x.bg(t.hover)))
         .tooltip(this.busy ? "拉取中…"
           : !s?.repo ? "不在 Git 專案內"
           : !s.upstream ? "這個分支沒有上游分支，沒有東西可拉"
           : s.behind > 0 ? `拉取 ${s.behind} 個 commit（git pull --ff-only）：只做快轉，不會產生 merge commit`
-          : "沒有需要拉取的內容（每分鐘自動向遠端 fetch 一次）")
+          : "拉取（git pull --ff-only）：會先向遠端抓最新再快轉；背景每分鐘會檢查一次是否落後")
         .on_click((_e, cx) => this.pull(cx))
         .child(h_flex().gap(5).items_center()
           .child(this.busy ? svg("mods/workspace-chrome/spinner.svg").size(14).flex_none().text_color(t.muted).spin(900) : svg("mods/git-hub/icons/arrow-down.svg").size(14).flex_none().text_color(needs ? t.accent : t.dim))
