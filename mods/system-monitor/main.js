@@ -67,7 +67,7 @@ export default class SystemMonitor extends View {
 
   // A big-number tile: label, value, thin bar.
   tile(t, label, value, unit, pct, color) {
-    return v_flex().flex_1().min_w(0).gap(4).p(10).rounded(10).bg(t.surface).border_1().border_color(t.border)
+    return v_flex().flex_1().min_w(0).gap(3).p(8).rounded(10).bg(t.surface).border_1().border_color(t.border)
       .child(div().text_size(11).text_color(t.dim).font_semibold().child(label))
       .child(h_flex().items_end().gap(2)
         .child(div().text_size(22).font_bold().text_color(color).child(value))
@@ -76,19 +76,19 @@ export default class SystemMonitor extends View {
   }
 
   card(t, title, ...rows) {
-    return v_flex().gap(6).p(10).rounded(10).bg(t.surface).border_1().border_color(t.border)
+    return v_flex().gap(3).p(8).rounded(10).bg(t.surface).border_1().border_color(t.border)
       .child(div().text_size(11).text_color(t.dim).font_semibold().child(title))
       .children(rows);
   }
 
   line(t, name, value, color) {
-    return h_flex().items_center().justify_between().h(18)
+    return h_flex().items_center().justify_between().h(16)
       .child(div().text_color(t.muted).child(name))
       .child(div().font_semibold().text_color(color ?? t.foreground).child(value));
   }
 
   ipLine(t, name, value, ok) {
-    return h_flex().items_center().gap(8).h(20)
+    return h_flex().items_center().gap(8).h(17)
       .child(div().size(6).rounded(3).flex_none().bg(ok ? t.done : t.dim))
       .child(div().flex_1().text_color(t.muted).child(name))
       .child(div().font_semibold().text_color(ok ? t.foreground : t.dim).child(value));
@@ -139,19 +139,18 @@ export default class SystemMonitor extends View {
     const hot = Math.max(s.temp, s.gpuTemp);
     const diskColor = s.diskFree <= 15 ? t.blocked : s.diskFree <= 35 ? t.warning ?? t.working : t.done;
 
-    // Head and the refresh control stay pinned; the readouts scroll if the window is short.
-    const body = v_flex().id("sm-body").flex_none().max_h(310).overflow_y_scrollbar().gap(8)
+    // Head, refresh and the launchers stay pinned; the readouts are as tall as their content and scroll only past the cap (it leaves room for the launchers in the 460px popup).
+    const body = v_flex().id("sm-body").flex_none().max_h(296).overflow_y_scrollbar().gap(8)
       .child(h_flex().gap(8)
         .child(this.tile(t, "CPU", s.cpu, "%", s.cpu, tone(t, s.cpu, 70, 90)))
         .child(this.tile(t, "GPU", s.gpu, "%", s.gpu, tone(t, s.gpu, 70, 90)))
         .child(this.tile(t, "RAM", s.memUsed, `/${s.memTotal}G`, s.memPct, tone(t, s.memPct, 80, 92))))
+      .child(network)
       .child(this.card(t, "儲存與狀態",
         this.line(t, "SSD", `剩 ${s.diskFree}G / ${s.diskTotal}G`, diskColor),
         this.bar(t, s.diskTotal ? (s.diskUsed / s.diskTotal) * 100 : 0, diskColor, 4),
         this.line(t, "溫度", `CPU ${s.temp}° · GPU ${s.gpuTemp}°`, tone(t, hot, 80, 95)),
-        this.line(t, "功耗", `整機 ${s.power.sys.toFixed(1)}W`),
-        ...(fan && s.fans.some((f) => f.rpm > 0) ? [this.line(t, "風扇", `${fan} rpm`)] : [])))
-      .child(network);
+        this.line(t, "功耗 · 風扇", `${s.power.sys.toFixed(1)}W${fan && s.fans.some((f) => f.rpm > 0) ? ` · ${fan} rpm` : ""}`)));
     const launcher = (id, label, on) => div().id(id).flex_1().h(28).flex().items_center().justify_center().rounded(8)
       .bg(t.surface).border_1().border_color(t.border).text_size(12).font_semibold().cursor_pointer()
       .hover((x) => x.bg(t.hover)).on_click(() => { on(); close(); }).child(label);
