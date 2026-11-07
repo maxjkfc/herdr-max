@@ -4,7 +4,7 @@
 // - Shows the currently bound GitHub Issue / task on Worktrees (and Spaces), clickable to switch/rebind at any time
 // - Automatically cleans up closed clean worktrees in the background and prompts only when dirty/unpushed
 
-import { View, div, svg } from "gpui-kit";
+import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import {
   spaces,
@@ -96,6 +96,7 @@ export default class SpacesPlus extends View {
     this.reconnecting = JSON.parse(localStorage.getItem("machines.reconnecting") ?? "{}");
     for (const state of Object.values(this.reconnecting)) state.busy = false;
     this.folded = new Set(JSON.parse(localStorage.getItem("machines.folded") ?? "[]"));
+    this.agentsFolded = new Set(JSON.parse(localStorage.getItem("spaces.agents.folded") ?? "[]"));
     this.refreshMachines(cx);
     cx.timer.every(15000, (cx) => this.refreshMachines(cx));
     cx.timer.every(250, (cx) => this.checkNew(cx));
@@ -153,6 +154,7 @@ export default class SpacesPlus extends View {
     const at = {};
     for (const s of sp) at[s.id] = where(s, ps);
     const keys = new Set(Object.values(at).filter((k) => JSON.parse(k)[1]));
+    for (const k of this.agentKeys(sp, ps)) keys.add(k);
     const due = new Set([...keys].filter((k) => !(k in this.git)));
     for (const [id, k] of Object.entries(at))
       if (this.at[id] && this.at[id] !== k && keys.has(k)) due.add(k);
@@ -464,6 +466,91 @@ export default class SpacesPlus extends View {
     return null;
   }
 
+  // Git lookup keys for the cwd of every agent's pane, so each agent can be told apart: linked worktree or plain path.
+  agentKeys(sp, ps) {
+    const machine = Object.fromEntries(sp.map((s) => [s.id, s.machine ?? null]));
+    const cwd = Object.fromEntries(ps.map((p) => [p.pane, p.cwd]));
+    return agents().flatMap((a) =>
+      a.space in machine && cwd[a.pane] ? [JSON.stringify([machine[a.space], cwd[a.pane]])] : []
+    );
+  }
+
+  toggleAgents(id, cx) {
+    this.agentsFolded.has(id) ? this.agentsFolded.delete(id) : this.agentsFolded.add(id);
+    localStorage.setItem("spaces.agents.folded", JSON.stringify([...this.agentsFolded]));
+    cx.notify();
+  }
+
+  shortPath(cwd, w) {
+    const folder = (w.folder || "").replace(/\/+$/, "");
+    if (folder && cwd === folder) return base(folder) || "/";
+    if (folder && cwd.startsWith(`${folder}/`)) return cwd.slice(folder.length + 1);
+    const h = home();
+    return h && cwd.startsWith(`${h}/`) ? `~${cwd.slice(h.length)}` : cwd;
+  }
+
+  // One row per agent under a Space holding two or more: status, name, and `wt` (linked worktree, with its branch)
+  // or `path` (plain checkout, shown relative to the Space folder).
+  agentRows({ w, tree }, allAgents, ps, t) {
+    const mine = allAgents.filter((a) => a.space === w.id);
+    if (mine.length < 2 || this.agentsFolded.has(w.id)) return [];
+    const cwdOf = Object.fromEntries(ps.map((p) => [p.pane, p.cwd]));
+    return [...mine]
+      .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
+      .map((a) => {
+        const cwd = cwdOf[a.pane] ?? "";
+        const g = this.git[JSON.stringify([w.machine ?? null, cwd])];
+        const wt = g ? Boolean(g.linked) : cwd.includes("/.herdr/worktrees/");
+        const label = wt ? g?.branch || base(cwd) : cwd ? this.shortPath(cwd, w) : "?";
+        const name = (a.app || a.program?.name || "agent").replace(/-code$/, "");
+        const program = a.program?.icon ? a.program : ps.find((p) => p.pane === a.pane)?.program;
+        return h_flex()
+          .id(`agent-${a.address}`)
+          .h(22)
+          .flex_none()
+          .pl(tree ? 43 : 25)
+          .pr(4)
+          .gap(6)
+          .items_center()
+          .rounded(6)
+          .text_size(11)
+          .cursor_pointer()
+          .hover((s) => s.bg(t.hover))
+          .tooltip(cwd || name)
+          .on_click(() => {
+            run("space.select", { id: w.id });
+            if (a.tab) run("tab.select", { id: a.tab });
+            run("pane.focus", { terminal: a.address });
+          })
+          .child(div().size(6).rounded(3).flex_none().bg(tone(t, a.status)))
+          .child(
+            program?.icon
+              ? program.tint
+                ? svg(program.icon).size(14).flex_none().text_color(t.muted)
+                : image(program.icon).size(14).flex_none()
+              : svg("icons/agent.svg").size(14).flex_none().text_color(t.muted)
+          )
+          .child(
+            div()
+              .flex_none()
+              .text_size(10.5)
+              .text_color(a.status === "working" ? t.foreground : t.muted)
+              .child(name)
+          )
+          .child(
+            div()
+              .flex_none()
+              .px(4)
+              .rounded(4)
+              .bg(t.surface)
+              .text_size(10)
+              .text_color(wt ? t.accent : t.dim)
+              .child(wt ? "wt" : "path")
+          )
+          .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(label));
+      });
+  }
+
   resolveAgentSummary(w, allAgents) {
     const mine = allAgents.filter((a) => a.space === w.id);
     if (!mine.length) return null;
@@ -475,6 +562,7 @@ export default class SpacesPlus extends View {
     const shortName = name.replace(/-code$/, "");
     return {
       count: mine.length,
+      space: w.id,
       name: shortName,
       status: top.status,
       address: top.address,
@@ -484,7 +572,11 @@ export default class SpacesPlus extends View {
   grouped(t, collapsed) {
     const rows = this.ordered();
     const allAgents = agents();
-    const draw = (r) => (collapsed ? this.compact(r, t) : this.row(r, t, allAgents));
+    const ps = panes();
+    const draw = (r) =>
+      collapsed
+        ? [this.compact(r, t)]
+        : [this.row(r, t, allAgents), ...this.agentRows(r, allAgents, ps, t)];
     const remote = [
       ...new Set([
         ...rows.map((r) => r.w.machine).filter(Boolean),
@@ -509,7 +601,7 @@ export default class SpacesPlus extends View {
         .text_size(12)
         .text_color(t.dim)
         .child(collapsed ? "…" : "Loading…");
-    if (!remote.length) return loading(null) && !rows.length ? [loadingRow(null)] : rows.map(draw);
+    if (!remote.length) return loading(null) && !rows.length ? [loadingRow(null)] : rows.flatMap(draw);
     const machineNames = [null, ...remote];
     return machineNames.flatMap((m) => {
       const mine = rows.filter((r) => (r.w.machine ?? null) === m);
@@ -600,7 +692,7 @@ export default class SpacesPlus extends View {
       if (!collapsed && rebuilt) return [head];
       return [
         head,
-        ...(folded ? [] : mine.length ? mine.map(draw) : [loading(m) ? loadingRow(m) : empty]),
+        ...(folded ? [] : mine.length ? mine.flatMap(draw) : [loading(m) ? loadingRow(m) : empty]),
       ];
     });
   }
@@ -629,12 +721,26 @@ export default class SpacesPlus extends View {
             .py(1)
             .rounded(4)
             .bg(t.surface)
+            .when(ag.count > 1, (b) =>
+              b
+                .id(`space-agents-${ag.space}`)
+                .cursor_pointer()
+                .hover((s) => s.bg(t.hover))
+                .tooltip("展開 / 收合 agent 清單")
+                .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+                .on_click((_e, cx) => {
+                  cx.stop_propagation();
+                  this.toggleAgents(ag.space, cx);
+                })
+            )
             .child(div().size(6).rounded(3).bg(tone(t, ag.status)))
             .child(
               div()
                 .text_size(10.5)
                 .text_color(ag.status === "working" ? t.foreground : t.muted)
-                .child(`${ag.name}${ag.count > 1 ? `×${ag.count}` : ""}`)
+                .child(
+                  `${ag.count > 1 ? (this.agentsFolded.has(ag.space) ? "▸ " : "▾ ") : ""}${ag.name}${ag.count > 1 ? `×${ag.count}` : ""}`
+                )
             )
         )
       )
