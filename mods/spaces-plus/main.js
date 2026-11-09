@@ -6,6 +6,8 @@
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
+import { base, parseBranch, repoInfo } from "./repo.js";
+import { nest, pinFirst, pinKey } from "./nest.js";
 import {
   spaces,
   machines,
@@ -43,7 +45,6 @@ function place(s, ps) {
 }
 
 const where = (s, ps) => JSON.stringify([s.machine ?? null, place(s, ps)]);
-const base = (path) => path.replace(/\/+$/, "").split("/").pop();
 const FALLBACK = 60000;
 
 const MARK = {
@@ -63,17 +64,6 @@ export function glyph(status) {
 
 export function tone(t, status) {
   return t[status] ?? t.unknown;
-}
-
-function repoMainPath(repoKey) {
-  if (!repoKey) return null;
-  try {
-    const [, gitDir] = JSON.parse(repoKey);
-    if (!gitDir) return null;
-    return gitDir.endsWith("/.git") ? gitDir.slice(0, -5) : gitDir;
-  } catch {
-    return null;
-  }
 }
 
 export default class SpacesPlus extends View {
@@ -97,6 +87,8 @@ export default class SpacesPlus extends View {
     for (const state of Object.values(this.reconnecting)) state.busy = false;
     this.folded = new Set(JSON.parse(localStorage.getItem("machines.folded") ?? "[]"));
     this.agentsFolded = new Set(JSON.parse(localStorage.getItem("spaces.agents.folded") ?? "[]"));
+    this.pinned = new Set(JSON.parse(localStorage.getItem("spaces.pinned") ?? "[]"));
+    this.hovered = null;
     this.refreshMachines(cx);
     cx.timer.every(15000, (cx) => this.refreshMachines(cx));
     cx.timer.every(250, (cx) => this.checkNew(cx));
@@ -291,34 +283,14 @@ export default class SpacesPlus extends View {
         this.git[key] = null;
         return;
       }
-      const top = await exec("git", ["rev-parse", "--show-toplevel"], { cwd, on });
-      const common = await exec("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
-        cwd,
-        on,
-      });
-      const gitDir = await exec("git", ["rev-parse", "--path-format=absolute", "--git-dir"], { cwd, on });
-      const repo = common.stdout.trim();
-      const topPath = top.stdout.trim();
-      const name = repo.endsWith("/.git") ? base(repo.slice(0, -5)) : base(repo).replace(/\.git$/, "");
-      const info = {
-        name,
-        top: topPath,
-        branch: null,
-        ahead: 0,
-        behind: 0,
-        repo: JSON.stringify([on, repo]),
-        // A linked worktree has its own git dir apart from the shared one; a repo whose .git lives elsewhere
-        // (--separate-git-dir) does not.
-        linked: gitDir.stdout.trim() !== repo,
-      };
-      for (const line of r.stdout.split("\n")) {
-        if (line.startsWith("# branch.head ")) info.branch = line.slice(14);
-        else if (line.startsWith("# branch.ab ")) {
-          const [a, b] = line.slice(12).split(" ");
-          info.ahead = Math.abs(parseInt(a, 10)) || 0;
-          info.behind = Math.abs(parseInt(b, 10)) || 0;
-        }
-      }
+      const [top, gitDir, repo] = (
+        await exec(
+          "git",
+          ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-dir", "--git-common-dir"],
+          { cwd, on }
+        )
+      ).stdout.trim().split("\n");
+      const info = { ...repoInfo({ on, top, common: repo, gitDir }), ...parseBranch(r.stdout) };
       this.git[key] = info;
       if (!on) this.watch(repo, cx);
     } catch {
@@ -371,34 +343,6 @@ export default class SpacesPlus extends View {
     run("mod.open", { name: "worktree-plus" });
   }
 
-  // Find which parent Space a linked worktree row `k` belongs under.
-  findParentId(k, mainsList, meta) {
-    const kFolder = (k.cwd || k.w.folder || "").replace(/\/+$/, "");
-    const m = meta[kFolder] ?? meta[k.g?.top?.replace(/\/+$/, "") ?? ""];
-    if (m?.parentSpaceId && mainsList.some((r) => r.w.id === m.parentSpaceId)) {
-      return m.parentSpaceId;
-    }
-    // 1. Direct git repo match
-    const direct = mainsList.find((r) => r.g && r.g.repo === k.g.repo);
-    if (direct) return direct.w.id;
-    // 2. Space name matches repo name (e.g. Space "CMS" for repo "CMS")
-    if (k.g?.name) {
-      const byName = mainsList.find((r) => r.w.name.toLowerCase() === k.g.name.toLowerCase());
-      if (byName) return byName.w.id;
-    }
-    // 3. Umbrella workspace folder match (e.g. parent Space folder contains child git repo)
-    const mainRepoDir = repoMainPath(k.g?.repo);
-    if (mainRepoDir) {
-      const umbrella = mainsList.find((r) => {
-        const rf = (r.w.folder || r.cwd || "").replace(/\/+$/, "");
-        const h = home();
-        return rf && rf !== h && mainRepoDir.startsWith(rf + "/");
-      });
-      if (umbrella) return umbrella.w.id;
-    }
-    return null;
-  }
-
   ordered() {
     const sp = spaces();
     const ps = panes();
@@ -410,42 +354,18 @@ export default class SpacesPlus extends View {
     for (const w of sp) if (!this.shown.has(w.id) && ready(w)) this.shown.add(w.id);
 
     const list = sp
-      .map((w, i) => {
-        const cwd = place(w, ps);
-        const g = this.git[where(w, ps)] ?? null;
-        const isWtPath = (w.folder || "").includes("/.herdr/worktrees/");
-        return { w, i, cwd, g, isWt: Boolean(g?.linked || isWtPath) };
-      })
+      .map((w, i) => ({ w, i, cwd: place(w, ps), g: this.git[where(w, ps)] ?? null }))
       .filter((r) => this.shown.has(r.w.id));
+    return pinFirst(nest(list, { meta, home: home() }), this.pinned);
+  }
 
-    const mainsList = list.filter((r) => !r.isWt);
-    const parentMap = new Map(); // parentSpaceId -> child rows[]
-    const unparentedWts = [];
-
-    for (const r of list) {
-      if (!r.isWt) continue;
-      const pid = this.findParentId(r, mainsList, meta);
-      if (pid) {
-        const arr = parentMap.get(pid) ?? [];
-        arr.push(r);
-        parentMap.set(pid, arr);
-      } else {
-        unparentedWts.push(r);
-      }
-    }
-
-    const out = [];
-    for (const r of mainsList) {
-      out.push({ ...r, tree: null });
-      const kids = parentMap.get(r.w.id) ?? [];
-      kids.forEach((k, n) =>
-        out.push({ ...k, tree: n === kids.length - 1 ? "└─" : "├─" })
-      );
-    }
-    for (const u of unparentedWts) {
-      out.push({ ...u, tree: "└─" });
-    }
-    return out;
+  togglePin(w, cx) {
+    const key = pinKey(w);
+    this.pinned.has(key) ? this.pinned.delete(key) : this.pinned.add(key);
+    localStorage.setItem("spaces.pinned", JSON.stringify([...this.pinned]));
+    // The row moves away from under the pointer, and no hover-out comes.
+    this.hovered = null;
+    cx.notify();
   }
 
   resolveIssue(w, cwd, g) {
@@ -578,9 +498,11 @@ export default class SpacesPlus extends View {
     const allAgents = agents();
     const ps = panes();
     const draw = (r) =>
-      collapsed
-        ? [this.compact(r, t)]
-        : [this.row(r, t, allAgents), ...this.agentRows(r, allAgents, ps, t)];
+      r.ghost
+        ? collapsed ? [] : [this.ghostRow(r, t)]
+        : collapsed
+          ? [this.compact(r, t)]
+          : [this.row(r, t, allAgents), ...this.agentRows(r, allAgents, ps, t)];
     const remote = [
       ...new Set([
         ...rows.map((r) => r.w.machine).filter(Boolean),
@@ -767,6 +689,22 @@ export default class SpacesPlus extends View {
     const showSecondLine = Boolean(isWt || issue);
     const height = showSecondLine ? 46 : 30;
 
+    const pinned = this.pinned.has(pinKey(w));
+    const pin = div()
+      .id(`space-pin-${w.id}`)
+      .flex_none()
+      .p(2)
+      .rounded(4)
+      .text_color(pinned ? t.accent : t.dim)
+      .cursor_pointer()
+      .hover((s) => s.bg(t.hover).text_color(t.foreground))
+      .tooltip(pinned ? "取消釘選" : "釘選到最上方")
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_click((_e, cx) => {
+        cx.stop_propagation();
+        this.togglePin(w, cx);
+      })
+      .child(svg(`mods/workspace-chrome/${pinned ? "pin-off" : "pin"}.svg`).size(13));
     return v_flex()
       .relative()
       .id(`space-${w.id}`)
@@ -814,6 +752,11 @@ export default class SpacesPlus extends View {
         cx.notify();
       })
       .on_mouse_down("right", () => this.menu(w))
+      .on_hover((on, cx) => {
+        if (on) this.hovered = w.id;
+        else if (this.hovered === w.id) this.hovered = null;
+        cx.notify();
+      })
       .child(
         h_flex()
           .gap(7)
@@ -838,6 +781,7 @@ export default class SpacesPlus extends View {
           )
           .child(div().flex_shrink(0).max_w(125).truncate().text_color(t.foreground).child(w.name))
           .child(this.gitTail(g, tree, w.name, ag, t))
+          .when(!tree && (pinned || this.hovered === w.id), (el) => el.child(pin))
       )
       .when(showSecondLine, (el) =>
         el.child(
@@ -893,6 +837,29 @@ export default class SpacesPlus extends View {
       .on_click(() => run("space.select", { id: w.id }))
       .child(div().text_color(w.active ? t.foreground : t.muted).child(String(i + 1)))
       .child(div().text_color(tone(t, w.status)).child(glyph(w.status)));
+  }
+
+  // A repo whose main checkout is not open, standing over its worktrees. Click opens the repo as a Space.
+  ghostRow({ w }, t) {
+    return h_flex()
+      .id(`space-${w.id}`)
+      .h(26)
+      .flex_none()
+      .px(8)
+      .gap(7)
+      .items_center()
+      .rounded(8)
+      .text_size(12)
+      .text_color(t.dim)
+      .when(Boolean(w.folder), (el) =>
+        el
+          .cursor_pointer()
+          .hover((s) => s.bg(t.hover).text_color(t.foreground))
+          .tooltip("打開這個 repo")
+          .on_click(() => run("space.new", { folder: w.folder, machine: w.machine ?? "" }))
+      )
+      .child(svg("mods/workspace-chrome/folder.svg").size(13))
+      .child(div().truncate().child(w.name));
   }
 
   render() {
