@@ -7,7 +7,7 @@
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { base, parseBranch, repoInfo } from "./repo.js";
-import { nest } from "./nest.js";
+import { nest, pinFirst, pinKey } from "./nest.js";
 import {
   spaces,
   machines,
@@ -87,6 +87,8 @@ export default class SpacesPlus extends View {
     for (const state of Object.values(this.reconnecting)) state.busy = false;
     this.folded = new Set(JSON.parse(localStorage.getItem("machines.folded") ?? "[]"));
     this.agentsFolded = new Set(JSON.parse(localStorage.getItem("spaces.agents.folded") ?? "[]"));
+    this.pinned = new Set(JSON.parse(localStorage.getItem("spaces.pinned") ?? "[]"));
+    this.hovered = null;
     this.refreshMachines(cx);
     cx.timer.every(15000, (cx) => this.refreshMachines(cx));
     cx.timer.every(250, (cx) => this.checkNew(cx));
@@ -354,7 +356,16 @@ export default class SpacesPlus extends View {
     const list = sp
       .map((w, i) => ({ w, i, cwd: place(w, ps), g: this.git[where(w, ps)] ?? null }))
       .filter((r) => this.shown.has(r.w.id));
-    return nest(list, { meta, home: home() });
+    return pinFirst(nest(list, { meta, home: home() }), this.pinned);
+  }
+
+  togglePin(w, cx) {
+    const key = pinKey(w);
+    this.pinned.has(key) ? this.pinned.delete(key) : this.pinned.add(key);
+    localStorage.setItem("spaces.pinned", JSON.stringify([...this.pinned]));
+    // The row moves away from under the pointer, and no hover-out comes.
+    this.hovered = null;
+    cx.notify();
   }
 
   resolveIssue(w, cwd, g) {
@@ -678,6 +689,22 @@ export default class SpacesPlus extends View {
     const showSecondLine = Boolean(isWt || issue);
     const height = showSecondLine ? 46 : 30;
 
+    const pinned = this.pinned.has(pinKey(w));
+    const pin = div()
+      .id(`space-pin-${w.id}`)
+      .flex_none()
+      .p(2)
+      .rounded(4)
+      .text_color(pinned ? t.accent : t.dim)
+      .cursor_pointer()
+      .hover((s) => s.bg(t.hover).text_color(t.foreground))
+      .tooltip(pinned ? "取消釘選" : "釘選到最上方")
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_click((_e, cx) => {
+        cx.stop_propagation();
+        this.togglePin(w, cx);
+      })
+      .child(svg(`mods/workspace-chrome/${pinned ? "pin-off" : "pin"}.svg`).size(13));
     return v_flex()
       .relative()
       .id(`space-${w.id}`)
@@ -725,6 +752,11 @@ export default class SpacesPlus extends View {
         cx.notify();
       })
       .on_mouse_down("right", () => this.menu(w))
+      .on_hover((on, cx) => {
+        if (on) this.hovered = w.id;
+        else if (this.hovered === w.id) this.hovered = null;
+        cx.notify();
+      })
       .child(
         h_flex()
           .gap(7)
@@ -749,6 +781,7 @@ export default class SpacesPlus extends View {
           )
           .child(div().flex_shrink(0).max_w(125).truncate().text_color(t.foreground).child(w.name))
           .child(this.gitTail(g, tree, w.name, ag, t))
+          .when(!tree && (pinned || this.hovered === w.id), (el) => el.child(pin))
       )
       .when(showSecondLine, (el) =>
         el.child(

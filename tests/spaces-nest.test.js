@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { nest, parentOf } from "../mods/spaces-plus/nest.js";
+import { nest, parentOf, pinFirst, pinKey } from "../mods/spaces-plus/nest.js";
 import { mainTop, parseBranch, repoInfo } from "../mods/spaces-plus/repo.js";
 
 const info = (top, common, gitDir = common, on = null) => repoInfo({ on, top, common, gitDir });
@@ -85,5 +85,30 @@ describe("nest", () => {
     const pending = space("p", "p", "/Users/me/.herdr/worktrees/r/x", null);
     expect(() => nest([main, pending])).not.toThrow();
     expect(ids(nest([main, pending]))).toEqual(["main", "└─p"]);
+  });
+});
+
+describe("pinFirst", () => {
+  const row = (id, tree = null, extra = {}) => ({ w: { id, name: id, folder: `/f/${id}`, machine: null }, tree, ...extra });
+  const pins = (...ids) => new Set(ids.map((id) => pinKey(row(id).w)));
+
+  test("pinned Spaces move to the top with their worktrees; everything else keeps its order", () => {
+    const rows = [row("a"), row("b"), row("b1", "└─"), row("c")];
+    expect(ids(pinFirst(rows, pins("b")))).toEqual(["b", "└─b1", "a", "c"]);
+    expect(ids(pinFirst(rows, pins("c", "a")))).toEqual(["a", "c", "b", "└─b1"]);
+  });
+
+  test("pinning a worktree row does nothing: only a top-level Space is pinned", () => {
+    const rows = [row("a"), row("a1", "└─"), row("b")];
+    expect(ids(pinFirst(rows, pins("a1")))).toEqual(["a", "└─a1", "b"]);
+  });
+
+  test("a ghost row is never pinned", () => {
+    const rows = [row("a"), row("g", null, { ghost: true }), row("g1", "└─")];
+    expect(ids(pinFirst(rows, pins("g")))).toEqual(["a", "g", "└─g1"]);
+  });
+
+  test("a pin names the machine, so the same folder on two machines is two pins", () => {
+    expect(pinKey({ folder: "/f", machine: "mini" })).not.toBe(pinKey({ folder: "/f", machine: null }));
   });
 });
