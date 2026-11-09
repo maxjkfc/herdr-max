@@ -94,7 +94,7 @@ export default class GitHubSwitcher extends View {
     this.fetching = true;
     this.fetchedAt[key] = Date.now();
     cx.spawn(async (cx) => {
-      try { await exec("env", ["GIT_TERMINAL_PROMPT=0", "git", "fetch", "--quiet", "--no-tags", remote], { cwd: root, on }); } catch {}
+      try { await exec("env", ["GIT_TERMINAL_PROMPT=0", "git", "fetch", "--quiet", "--no-tags", remote], { cwd: root, on, timeout: 120000 }); } catch {}
       this.fetching = false;
       this.refreshSync(cx);
     });
@@ -110,7 +110,7 @@ export default class GitHubSwitcher extends View {
       let title = "", body = "", level = "info";
       try {
         const before = (await exec("git", ["rev-parse", "HEAD"], { cwd: s.root, on: s.on })).stdout.trim();
-        const r = await exec("git", ["pull", "--ff-only"], { cwd: s.root, on: s.on });
+        const r = await exec("git", ["pull", "--ff-only"], { cwd: s.root, on: s.on, timeout: 120000 });
         if (r.code !== 0) {
           const why = (r.stderr || r.stdout).trim().split("\n").filter(Boolean).slice(-2).join(" ");
           title = `拉取失敗 · ${s.branch}`; body = why.slice(0, 160); level = "error";

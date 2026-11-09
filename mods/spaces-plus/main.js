@@ -117,7 +117,7 @@ export default class SpacesPlus extends View {
     this.scanningWt = true;
     try {
       const openPaths = [...sp.map((s) => s.folder), ...pn.map((p) => p.cwd)].filter(Boolean);
-      const r = await exec("python3", [wtHelper(), "scan-orphans", JSON.stringify(openPaths)]);
+      const r = await exec("python3", [wtHelper(), "scan-orphans", JSON.stringify(openPaths)], { timeout: 120000 });
       if (r.code === 0 && r.stdout.trim()) {
         const res = JSON.parse(r.stdout);
         if (Array.isArray(res.cleaned) && res.cleaned.length > 0) {
