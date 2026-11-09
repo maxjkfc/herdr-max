@@ -86,3 +86,17 @@ export function nest(rows, options = {}) {
   }
   return out;
 }
+
+/** What a pin remembers a Space by: its id. Folders are not unique (two Spaces can both sit in $HOME). */
+export const pinKey = (w) => w.id;
+
+/** Pinned Spaces first, each with its worktrees; every other order is kept. `pinned` is a Set of `pinKey`s. */
+export function pinFirst(rows, pinned) {
+  const blocks = [];
+  for (const r of rows) {
+    if (r.tree && blocks.length) blocks[blocks.length - 1].push(r);
+    else blocks.push([r]);
+  }
+  const isPinned = (block) => !block[0].ghost && pinned.has(pinKey(block[0].w));
+  return [...blocks.filter(isPinned), ...blocks.filter((b) => !isPinned(b))].flat();
+}
