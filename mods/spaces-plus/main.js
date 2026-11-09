@@ -296,6 +296,7 @@ export default class SpacesPlus extends View {
         cwd,
         on,
       });
+      const gitDir = await exec("git", ["rev-parse", "--path-format=absolute", "--git-dir"], { cwd, on });
       const repo = common.stdout.trim();
       const topPath = top.stdout.trim();
       const name = repo.endsWith("/.git") ? base(repo.slice(0, -5)) : base(repo).replace(/\.git$/, "");
@@ -306,7 +307,9 @@ export default class SpacesPlus extends View {
         ahead: 0,
         behind: 0,
         repo: JSON.stringify([on, repo]),
-        linked: repo !== `${topPath}/.git`,
+        // A linked worktree has its own git dir apart from the shared one; a repo whose .git lives elsewhere
+        // (--separate-git-dir) does not.
+        linked: gitDir.stdout.trim() !== repo,
       };
       for (const line of r.stdout.split("\n")) {
         if (line.startsWith("# branch.head ")) info.branch = line.slice(14);
@@ -388,7 +391,8 @@ export default class SpacesPlus extends View {
     if (mainRepoDir) {
       const umbrella = mainsList.find((r) => {
         const rf = (r.w.folder || r.cwd || "").replace(/\/+$/, "");
-        return rf && mainRepoDir.startsWith(rf + "/");
+        const h = home();
+        return rf && rf !== h && mainRepoDir.startsWith(rf + "/");
       });
       if (umbrella) return umbrella.w.id;
     }
