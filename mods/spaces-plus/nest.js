@@ -87,8 +87,8 @@ export function nest(rows, options = {}) {
   return out;
 }
 
-/** What a pin remembers a Space by: its machine and folder, which exist before git has answered. */
-export const pinKey = (w) => JSON.stringify([w.machine ?? null, w.folder ?? w.id]);
+/** What a pin remembers a Space by: its id. Folders are not unique (two Spaces can both sit in $HOME). */
+export const pinKey = (w) => w.id;
 
 /** Pinned Spaces first, each with its worktrees; every other order is kept. `pinned` is a Set of `pinKey`s. */
 export function pinFirst(rows, pinned) {

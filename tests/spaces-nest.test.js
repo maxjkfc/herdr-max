@@ -108,7 +108,8 @@ describe("pinFirst", () => {
     expect(ids(pinFirst(rows, pins("g")))).toEqual(["a", "g", "└─g1"]);
   });
 
-  test("a pin names the machine, so the same folder on two machines is two pins", () => {
-    expect(pinKey({ folder: "/f", machine: "mini" })).not.toBe(pinKey({ folder: "/f", machine: null }));
+  test("Spaces in the same folder are pinned separately", () => {
+    const rows = [row("a", null, { w: { id: "a", folder: "/home" } }), row("b", null, { w: { id: "b", folder: "/home" } })];
+    expect(ids(pinFirst(rows, new Set(["b"])))).toEqual(["b", "a"]);
   });
 });
