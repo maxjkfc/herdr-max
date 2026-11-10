@@ -1,8 +1,8 @@
 // A lazy file browser for the focused pane's folder, with bounded read-only previews. Fork of Herdr's `files`, plus
 // buttons that open the file (or folder) in Finder, Zed or Chrome.
 import { View, div, svg, image } from "gpui-kit";
-import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
-import { spaces, panes, focused, exec, home, readTextFile, watchFolder, theme, settings, window, notify, props, openOverlay, closeOverlay } from "herdr";
+import { v_flex, h_flex, Editor, EditorState, InputState, Input } from "gpui-base";
+import { spaces, panes, focused, exec, home, readTextFile, writeTextFile, watchFolder, theme, settings, window, notify, props, openOverlay, closeOverlay } from "herdr";
 
 function location() {
   const space = spaces().find(s => s.active), f = focused();
@@ -50,11 +50,50 @@ function openPath(app, abs, isFile) {
   });
 }
 
+// Moves to the Trash (recoverable, Finder's Put Back works): `trash` ships with macOS 14+. Same plain-promise reason as openPath.
+function trashPath(abs) {
+  exec("trash", [abs]).catch(e => ({ code: 1, stderr: String(e) })).then(r => {
+    if (r.code === 0) notify({ title: "已移到垃圾桶", body: abs.split("/").pop(), level: "success" });
+    else notify({ title: "無法移到垃圾桶", body: (r.stderr || r.stdout || "").trim().slice(0, 200) || abs, level: "error" });
+  });
+}
+
+// A new empty file or folder `name` inside `dir`. Throws a short message the dialog shows.
+async function createEntry(dir, name, folder) {
+  if (!name || name.includes("/") || name === "." || name === "..") throw new Error("Use a plain name, without /");
+  const abs = `${dir}/${name}`;
+  const taken = await exec("sh", ["-c", '[ -e "$1" ] || [ -L "$1" ]', "files", abs]);
+  if (taken.code === 0) throw new Error(`${name} already exists`);
+  if (folder) {
+    const r = await exec("mkdir", [abs]);
+    if (r.code !== 0) throw new Error(r.stderr.trim() || "Cannot create the folder");
+  } else await writeTextFile(abs, "", null);
+}
+
+// The menu is its own view with no tree state, so it is given the root; `shown` is the folder as the dialog names it.
+function openAsk(folder, dir, root) {
+  openOverlay({ mod: "files-plus", kind: "dialog", width: 380, height: 196, props: { ask: { folder, dir, shown: dir.startsWith(root + "/") ? dir.slice(root.length + 1) : "" } } });
+}
+
 export default class Files extends View {
   init(_props, cx) {
     // The right-click menu is this mod opened as a popup, told so by props.
     const pr = props() ?? {};
     if (pr.menu) { this.menu = { ...pr.menu, overlay: pr.overlay }; return; }
+    // The New file / New folder dialog is this mod opened as a dialog.
+    if (pr.ask) {
+      this.ask = { ...pr.ask, overlay: pr.overlay }; this.text = ""; this.askError = null;
+      this.input = InputState.new({ value: "" });
+      this.input.on("change", (_e, cx) => { this.text = this.input.value(); this.askError = null; cx.notify(); });
+      this.input.on("submit", (_e, cx) => this.submit(cx));
+      this.inputFocused = true;
+      this.input.on("focus", (_e, cx) => { this.inputFocused = true; cx.notify(); });
+      this.input.on("blur", (_e, cx) => { this.inputFocused = false; cx.notify(); });
+      this.input.focus();
+      cx.timer.after(600, () => this.input.focus());
+      this.handle = cx.focus_handle();
+      return;
+    }
     this.saved = new Map();
     this.entries = new Map(); this.folders = new Set(); this.pending = new Set(); this.marks = {};
     this.refresh(cx);
@@ -189,10 +228,40 @@ export default class Files extends View {
     if (abs && !this.on) openPath(app, abs, isFile);
   }
 
-  // Right-click on a row: a small menu at the pointer to open that entry (not just the selected one).
+  // Right-click on a row (or the empty area: the root): a small menu at the pointer for that entry, not just the selected one.
+  // New file / New folder go inside a folder, or beside a file; the root cannot be trashed.
   openMenu(abs, isFile) {
     if (!this.root || this.on) return;
-    openOverlay({ mod: "files-plus", kind: "popup", width: 200, height: 4 * 34 + 8, at: "pointer", props: { menu: { abs, isFile } } });
+    const rows = 6 + (abs === this.root ? 0 : 1);
+    openOverlay({ mod: "files-plus", kind: "popup", width: 200, height: rows * 34 + 8 + 9, at: "pointer",
+      props: { menu: { abs, isFile, root: this.root, dir: isFile ? abs.slice(0, abs.lastIndexOf("/")) : abs, trash: abs !== this.root } } });
+  }
+
+  submit(cx) {
+    const a = this.ask, name = this.text.trim();
+    cx.spawn(async cx => {
+      try { await createEntry(a.dir, name, a.folder); closeOverlay(a.overlay); }
+      catch (e) { this.askError = String(e.message ?? e).replace(/^Error: /, ""); cx.notify(); }
+    });
+  }
+
+  renderAsk(t) {
+    const a = this.ask;
+    const button = (id, text, primary, action) => h_flex().id(id).h(32).px(14).items_center().rounded(8)
+      .border_1().border_color(primary ? t.solid : t.input).bg(primary ? t.solid : t.raised)
+      .text_color(primary ? t.solid_foreground : t.foreground).text_size(12.5).font_medium().cursor_pointer()
+      .hover(s => s.opacity(0.88)).on_click(action).child(text);
+    return v_flex().id("files-ask").track_focus(this.handle)
+      .on_key_down((e, cx) => { if (e.key === "escape") { closeOverlay(a.overlay); cx.stop_propagation(); } })
+      .w_full().min_h(0).p(18).bg(t.popover).text_color(t.foreground)
+      .child(h_flex().items_center().child(div().flex_1().text_size(15).font_semibold().child(a.folder ? "New folder" : "New file"))
+        .child(div().text_size(11).text_color(t.dim).child("Esc")))
+      .child(div().pt(16).pb(7).text_size(11.5).text_color(t.dim).truncate().child(`in ${a.shown || "the root folder"}`))
+      .child(Input.new(this.input).h(36).px(10).rounded(9).border_1().border_color(this.askError ? t.blocked : this.inputFocused ? t.accent : t.input).bg(t.background).text_size(12.8).text_color(t.foreground))
+      .child(div().pt(6).h(22).text_size(11.5).text_color(t.blocked).child(this.askError ?? ""))
+      .child(h_flex().pt(8).gap(8).justify_end()
+        .child(button("fa-cancel", "Cancel", false, () => closeOverlay(a.overlay)))
+        .child(button("fa-create", "Create", true, (_e, cx) => this.submit(cx))));
   }
 
   renderMenu(t) {
@@ -204,7 +273,11 @@ export default class Files extends View {
       .child(item("fm-finder", "folder", t.ansi3, m.isFile ? "Reveal in Finder" : "Open in Finder", () => openPath("finder", m.abs, m.isFile)))
       .child(item("fm-zed", "code", t.ansi4, "Open in Zed", () => openPath("zed", m.abs, m.isFile)))
       .child(item("fm-chrome", "globe", t.ansi6, "Open in Chrome", () => openPath("chrome", m.abs, m.isFile)))
-      .child(item("fm-copy", "copy", t.muted, "Copy path", cx => cx.write_to_clipboard(m.abs)));
+      .child(item("fm-copy", "copy", t.muted, "Copy path", cx => cx.write_to_clipboard(m.abs)))
+      .child(div().h(1).my(4).bg(t.border))
+      .child(item("fm-new-file", "file-plus", t.ansi2, "New file…", () => openAsk(false, m.dir, m.root)))
+      .child(item("fm-new-folder", "folder-plus", t.ansi2, "New folder…", () => openAsk(true, m.dir, m.root)))
+      .when(m.trash, el => el.child(item("fm-trash", "trash", t.ansi1, "Move to Trash", () => trashPath(m.abs))));
   }
 
   rows(prefix, depth, out, t) {
@@ -214,7 +287,7 @@ export default class Files extends View {
       const path = prefix ? `${prefix}/${entry.name}` : entry.name, open = this.folders.has(path), mark = this.marks[`${this.root}/${path}`];
       out.push(h_flex().id(`file-${path}`).h(28).flex_none().pl(8 + depth * 18).pr(8).gap(7).items_center().rounded(7).cursor_pointer().hover(s => s.bg(t.hover))
         .on_click((_e, cx) => { this.sel = entry.dir ? path : prefix; entry.dir ? this.toggle(path, cx) : this.show(path, cx); })
-        .on_mouse_down("right", () => this.openMenu(`${this.root}/${path}`, !entry.dir))
+        .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.openMenu(`${this.root}/${path}`, !entry.dir); })
         .child(entry.dir ? svg(`mods/files-plus/chevron-${open ? "down" : "right"}.svg`).size(12).flex_none().text_color(t.dim) : div().w(12).flex_none())
         .child(svg(`mods/files-plus/${entry.dir ? "folder" : "file"}.svg`).size(14).flex_none().text_color(t.muted))
         .child(div().flex_1().min_w(0).truncate().child(entry.name))
@@ -226,6 +299,7 @@ export default class Files extends View {
 
   render(cx) {
     if (this.menu) return this.renderMenu(theme());
+    if (this.ask) return this.renderAsk(theme());
     if (key() !== this.context?.key) this.refresh(cx);
     const t = theme();
     const target = this.target(), local = Boolean(this.root) && !this.on;
@@ -244,7 +318,7 @@ export default class Files extends View {
         .child(open("files-open-finder", "Finder", "finder", "folder", t.ansi3))
         .child(open("files-open-zed", "Zed", "zed", "code", t.ansi4))
         .child(open("files-open-chrome", "Chrome", "chrome", "globe", t.ansi6))))
-      .when(!this.file, el => el.child(v_flex().id("files-tree").flex_1().min_h(0).overflow_y_scrollbar().p(6).children(this.rows("", 0, [], t))
+      .when(!this.file, el => el.child(v_flex().id("files-tree").flex_1().min_h(0).overflow_y_scrollbar().p(6).on_mouse_down("right", () => this.openMenu(this.root, false)).children(this.rows("", 0, [], t))
         .when(Boolean(this.error) || !this.entries.get("")?.length, el => el.child(div().p(8).text_size(12).text_color(t.dim).child(this.error || (this.loading ? "Loading files…" : this.root ? "No files" : "No folder"))))
         .when(this.limited, el => el.child(div().p(8).text_size(11).text_color(t.dim).child("File list limited to 500 entries per folder and 5,000 total")))))
       .when(Boolean(this.file) && Boolean(this.image), el => el.child(div().id("files-image").flex_1().min_h(0).p(12).flex().items_center().justify_center().overflow_hidden()
