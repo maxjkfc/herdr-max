@@ -13,10 +13,16 @@ A customized [Herdr](https://herdr.dev) desktop layout (`main-custom`) and mod s
 - **Live Agent Status Pill**: Shows which coding agent (`omp`, `claude`, `codex`, etc.) is active inside each Space/Worktree and its real-time status (`working`, `blocked`, `done`, `idle`).
 - **Dynamic Issue Binding**: Displays the currently bound GitHub Issue (`🎯 #235 ...`) on a second line under each Worktree. Click the badge (or press `Ctrl+A` → `i`) at any time to switch or rebind the Issue as your work evolves.
 - **Per-agent rows**: a Space with two or more agents lists them underneath, one row each: status light, the agent's program icon (from `programs.json` / the built-in program table, a generic bot icon when it has none), agent name, and a `wt` chip (linked git worktree, shows its branch) or a `path` chip (plain checkout, shows the folder relative to the Space). Click a row to jump to that agent's pane; click the `▾ omp×3` badge to fold / unfold the list (remembered across restarts). A worktree is told apart from a plain path by the agent pane's own cwd, so agents in a worktree made inside one Space are labelled correctly.
+- **Needs-you word on the pill**: when a Space's most urgent agent is `blocked` or `done`, its pill reads `omp · needs you` (red) or `omp · done` (blue); working and idle stay a bare `omp`. Together with the Agents panel this answers both "which project" (Spaces) and "which agent" (Agents).
 - **Pinned Spaces**: hover a Space row and click the pin to keep it (with its worktrees) at the top of its machine's list; click it again to unpin. Remembered across restarts by Space id. Worktree and repo rows cannot be pinned.
 - **Zero-Friction Worktree Auto-Cleanup**: Whenever the set of open Spaces/panes changes (e.g. you close a Worktree Space with `Cmd+W`, `Ctrl+A` → `x`, or `exit`), `~/.herdr/worktrees` is scanned and clean worktrees that are no longer open are removed in the background (`git worktree remove` + `git branch -d`). If uncommitted files or unpushed commits exist, a safety dialog prompts before anything is deleted.
   - **Merged work counts as pushed**: a worktree whose HEAD is already in `origin/<default>` (normal merge / fast-forward), or whose GitHub PR was **squash/rebase-merged** with exactly this head commit (checked with `gh pr list --state merged`, 8s timeout), is cleaned without a prompt and its local branch is deleted with `-D` (`-d` refuses squash-merged branches). Dirty worktrees always still prompt.
   - Only worktrees under `~/.herdr/worktrees/<repo>/<branch>` are scanned, so create worktrees there (`git worktree add ~/.herdr/worktrees/<repo>/<branch> -b <branch> origin/main`) to have them cleaned automatically.
+
+### 1b. `agents-plus` — Agents Panel with Header Counts (`Ctrl+A` → `I`)
+- Cloned from Herdr's `agents` (the sections `Needs you` / `Done` / `Working` / `Idle` and priority ordering are Herdr's). It adds:
+  - **Counts in the header**: a red `2` chip (needs you) and a `● 1` (done) next to the title, with a tooltip each, so a waiting agent shows even when its section is folded. The bottom bar (`workspace-status-plus`) also counts `done` now, not only blocked.
+- **`Ctrl+A` → `I` (`Shift+I`)** jumps to the agent that needs you most: blocked before done, the most recent first. Herdr turns `done` into `idle` once you look at it, so a seen agent is not picked again. Nothing happens when no agent is waiting.
 
 ### 2. `worktree-plus` — Multi-Repo & GitHub Issue Worktree Manager (`Ctrl+A` → `G`)
 - **Umbrella Workspace Support**: If your current Space is a parent folder containing multiple Git repositories, Step 1 lets you pick which sub-repository to branch from.
@@ -80,6 +86,7 @@ A customized [Herdr](https://herdr.dev) desktop layout (`main-custom`) and mod s
 | `Ctrl+A` → `-` | `pane.split:down` | Split pane down |
 | `Ctrl+A` → `G` (`Shift+G`) | `worktree-plus` | Create Git Worktree (Timestamp / GitHub Issue / Custom) |
 | `Ctrl+A` → `i` | `worktree-issue` | Bind or switch the current Worktree's GitHub Issue |
+| `Ctrl+A` → `I` (`Shift+I`) | `agent-urgent` | Jump to the agent that needs you most (blocked, then done) |
 | `Ctrl+A` → `u` | `status-quota` | Open AI Quota & Reset Countdown drawer |
 | `Ctrl+A` → `f` | `files` | Toggle right-hand Files panel |
 | `Ctrl+A` → `d` | `changes` | Toggle right-hand Git panel → **Changes** (diff & commit) |
@@ -162,7 +169,7 @@ In the PR dialog the changed files are a column on the left of the diff (virtual
 
 | Command | What it checks |
 |---|---|
-| `bun test tests/` | Pure logic: remote-URL platform detection (`platform.js`), unified-diff parsing (`diff.js`), the changed-files folder tree (`filetree.js`), the syntax tokenizer (`highlight.js`), agent briefs (`brief.js`), review drafts / messages / agent matching (`review/drafts.js`), worktree list parsing (`review/worktrees.js`), git checkout facts and worktree nesting (`spaces-plus/repo.js`, `spaces-plus/nest.js`). |
+| `bun test tests/` | Pure logic: remote-URL platform detection (`platform.js`), unified-diff parsing (`diff.js`), the changed-files folder tree (`filetree.js`), the syntax tokenizer (`highlight.js`), agent briefs (`brief.js`), review drafts / messages / agent matching (`review/drafts.js`), worktree list parsing (`review/worktrees.js`), git checkout facts and worktree nesting (`spaces-plus/repo.js`, `spaces-plus/nest.js`), agent counts (`agents-plus/logic.js`), the most urgent agent (`tmux-prefix/urgent.js`). |
 | `scripts/check-mirrors.sh` | Files that must be identical copies because a mod cannot import another mod's files (`platform.js`, `diff.js`, `filetree.js`, `highlight.js`, `diffview.js`, `startagent.js`). Add pairs to `PAIRS` in the script. |
 | `scripts/diff-live.sh [-d]` | What the repo ships vs what runs in `~/.config/herdr-app` (`HERDR_APP_HOME`): lists differing or missing files, `-d` prints the diffs. Run it before opening a PR so live fixes don't stay out of the repo. |
 

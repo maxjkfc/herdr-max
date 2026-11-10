@@ -118,6 +118,7 @@
     "shift-d": "tmux-prefix.space.close",
     "shift-g": "tmux-prefix.mod.open:worktree-plus",
     "i": "tmux-prefix.worktree-issue",
+    "shift-i": "tmux-prefix.agent-urgent",
     "shift-p": "tmux-prefix.app.palette",
     "z": "tmux-prefix.pane.zoom",
     "x": "tmux-prefix.pane.close",

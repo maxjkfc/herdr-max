@@ -57,6 +57,8 @@ const MARK = {
 };
 
 const STATUS_RANK = { blocked: 4, done: 3, working: 2, idle: 1 };
+// Only the states that want a person get a word on the Space's pill; working and idle stay as short as before.
+const URGENT_WORD = { blocked: "needs you", done: "done" };
 
 export function glyph(status) {
   return status === "blocked" || status === "done" ? "●" : "·";
@@ -663,9 +665,9 @@ export default class SpacesPlus extends View {
             .child(
               div()
                 .text_size(10.5)
-                .text_color(ag.status === "working" ? t.foreground : t.muted)
+                .text_color(ag.status === "blocked" ? t.blocked : ag.status === "done" ? t.done : ag.status === "working" ? t.foreground : t.muted)
                 .child(
-                  `${ag.count > 1 ? (this.agentsFolded.has(ag.space) ? "▸ " : "▾ ") : ""}${ag.name}${ag.count > 1 ? `×${ag.count}` : ""}`
+                  `${ag.count > 1 ? (this.agentsFolded.has(ag.space) ? "▸ " : "▾ ") : ""}${ag.name}${ag.count > 1 ? `×${ag.count}` : ""}${URGENT_WORD[ag.status] ? ` · ${URGENT_WORD[ag.status]}` : ""}`
                 )
             )
         )
