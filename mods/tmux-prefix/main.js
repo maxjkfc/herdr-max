@@ -1,6 +1,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { closeOverlay, focused, hc, keys, layout, nextCommand, openOverlay, panes, props, run, setShared, spaces, theme } from "herdr";
+import { agents, closeOverlay, focused, hc, keys, layout, nextCommand, openOverlay, panes, props, run, setShared, spaces, theme } from "herdr";
+import { mostUrgent } from "./urgent.js";
 
 // Tmux-prefix engine: reads all bindings from keys.json under "mod:tmux-prefix".
 const HINT_DELAY_MS = 200;
@@ -52,6 +53,7 @@ function formatLabel(action) {
     "mod.open:worktree": "New git worktree",
     "mod.open:worktree-plus": "New git worktree",
     "worktree-issue": "Bind / switch Issue",
+    "agent-urgent": "Jump to the agent that needs you",
     "mod.open:status-quota": "Quota details",
     "new-menu": "New agent / tab menu",
     "files": "Toggle Files panel",
@@ -79,6 +81,11 @@ function loadBindings() {
 }
 
 function runAction(action, targetPane, targetCwd, targetTerminal) {
+  if (action === "agent-urgent") {
+    const a = mostUrgent(agents());
+    if (a) run("agent.focus", { terminal: a.address });
+    return;
+  }
   if (action === "scrollback" || action === "mod.open:scrollback") {
     const term = targetTerminal ?? focused()?.terminal ?? panes().find((p) => p.pane === targetPane)?.terminal ?? null;
     setShared("scrollback.request", { terminal: term, pane: targetPane, cwd: targetCwd });

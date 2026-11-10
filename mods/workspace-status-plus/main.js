@@ -107,6 +107,7 @@ export default class WorkspaceStatusPlus extends View {
     const space = spaces().find((s) => s.active);
     const list = agents();
     const needs = list.filter((a) => a.status === "blocked").length;
+    const finished = list.filter((a) => a.status === "done").length;
     const st = this.stats;
     const label = (icon, text) =>
       h_flex()
@@ -135,6 +136,9 @@ export default class WorkspaceStatusPlus extends View {
           .child(`${list.length} agents`)
           .when(needs > 0, (el) =>
             el.child(div().text_color(t.blocked).child(`· ${needs} needs you`))
+          )
+          .when(finished > 0, (el) =>
+            el.child(div().text_color(t.done).child(`· ${finished} done`))
           )
       )
       .child(div().flex_1())

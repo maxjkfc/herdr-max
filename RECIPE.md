@@ -8,13 +8,13 @@ A developer-focused Herdr desktop layout (`layouts/main-custom.json`) and modula
 
 - **Left Sidebar (`268px`, resizable)**:
   1. **Top (`spaces-plus`, weight 1)**: Header `Spaces & Worktrees` with `🌱` (New Worktree) and `+` (New Space) buttons. Worktree spaces (`~/.herdr/worktrees/<repo>/<branch>`) nest directly beneath their parent Space (supporting both single repositories and multi-repo umbrella directories). Each row shows a live agent status pill (`omp`, `claude`, `codex` with status dot) and a clickable second-line Issue badge (`🎯 #235 ...` or `+ 綁定處理中的 Issue…`).
-  2. **Middle (`agents`, weight 1)**: Built-in Herdr Agents list grouped by urgency (`Needs you`, `Done`, `Working`, `Idle`).
+  2. **Middle (`agents-plus`, weight 1)**: Herdr's Agents list grouped by urgency (`Needs you`, `Done`, `Working`, `Idle`), with compact `needs you` / `done` counts in the header.
   3. **Bottom-Left (`status-quota`, auto-sized `256px` or `28px` when folded, draggable top border)**: Header `▾ Quotas <updatedTime>` with `↻` (force refresh) and `⤢` (open detail popup). Lists each provider/account card with official Herdr icons (`icons/claude.svg`, `icons/codex.svg`, `icons/gemini.svg`), plan/account badge on the right, and per-window (`5h`, `7d`, `Argon`) percentage + color-coded progress bar columns underneath.
   4. **Sidebar Footer (`workspace-chrome`, `69px`)**: Settings & Add machine controls.
 - **Main Work Area (Right)**:
   1. **Top (`tabs`, `42px`, mod `tabs-plus`)**: Tab bar cloned from Herdr's `tabs`, keeping a clean 2-button right-hand panel toggle: **Files** and **Git**.
   2. **Center (`work-body`)**: Active terminal panes with collapsible right-hand `panel` (`files` and `git` stack, `368px`). Inside `git`, a 40px `git-hub` switcher bar toggles `git-body` between **Changes** (`Ctrl+A` → `d`), **Graph** (`git-graph`, `Ctrl+A` → `r`), and **Remote** (`github`, `Ctrl+A` → `o`, with 88%×92% Issue/PR dialogs, PR Files Changed diff tab, direct PR merge, and 1-click Issue-to-Worktree creation).
-  3. **Bottom Status Bar (`workspace-status-plus`, `28px`)**: Left shows machine, git branch, and agent count; right shows live `CPU %`, `RAM used/totalG (%)`, `SSD 剩 G`, and the command palette shortcut (`⌘P commands`).
+  3. **Bottom Status Bar (`workspace-status-plus`, `28px`)**: Left shows machine, git branch, agent count and how many `needs you` / `done`; right shows live `CPU %`, `RAM used/totalG (%)`, `SSD 剩 G`, and the command palette shortcut (`⌘P commands`).
 
 ## How it behaves
 
