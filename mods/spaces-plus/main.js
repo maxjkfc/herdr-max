@@ -27,6 +27,12 @@ import {
 } from "herdr";
 
 const wtHelper = () => `${home()}/.config/herdr-app/mods/worktree-plus/wt-helper.py`;
+// `hc machine login` asks for a password or code, so it runs in a tab of its own that waits for Enter before closing.
+const loginMachine = (name) =>
+  run("terminal.open", {
+    place: "tab",
+    argv: ["sh", "-c", '"$0" machine login "$1"; printf "\\nPress Enter to close "; read _', `${home()}/.local/bin/hc`, name],
+  });
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -560,6 +566,25 @@ export default class SpacesPlus extends View {
             .child(div().flex_1().truncate().child(m ?? "This computer"))
             .when(!connected && !rebuilt, (el) =>
               el.child(div().flex_none().child((machine?.state ?? "asleep").replace(/_/g, " ")))
+            )
+            .when(machine?.state === "needs_login", (el) =>
+              el.child(
+                div()
+                  .id(`machine-login-${m}`)
+                  .flex_none()
+                  .px(6)
+                  .rounded(4)
+                  .border_1()
+                  .border_color(t.border)
+                  .text_color(t.foreground)
+                  .hover((s) => s.bg(t.hover))
+                  .tooltip(`Run hc machine login ${m} in a new tab`)
+                  .on_click((_e, cx) => {
+                    cx.stop_propagation();
+                    loginMachine(m);
+                  })
+                  .child("Log in")
+              )
             )
             .when(rebuilt, (el) =>
               el.child(
