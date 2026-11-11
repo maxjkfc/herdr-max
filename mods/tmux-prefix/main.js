@@ -59,7 +59,7 @@ function formatLabel(action) {
     "files": "Toggle Files panel",
     "changes": "Toggle Git: Changes (diff)",
     "graph": "Toggle Git: Graph",
-    "github": "Toggle Git: Remote (PRs/Issues)",
+    "github": "Toggle Git: PRs / Issues / CI",
     "scrollback": "Copy / Scrollback mode (j/k/u/d/g/G)",
   };
   if (custom[action]) return custom[action];
