@@ -340,7 +340,7 @@ export default class GitHub extends View {
         .when(Boolean(checks?.state), (e) => e.child(div().pt(2).child(glyphOf(checks.state === "failure" ? "x-circle" : checks.state === "pending" ? "spin" : "check-circle", 14, checks.state === "failure" ? p.closed : checks.state === "pending" ? p.attention : p.open, t)))))
       // Row 2: Branch pill + +add/-del + conflict/draft badge + time
       .child(h_flex().gap(6).flex_wrap().items_center().text_size(12).text_color(t.muted)
-        .when(this.all() && Boolean(item.repo), (e) => e.child(div().px(6).py(1).rounded(4).border_1().border_color(t.border).bg(t.background).text_color(t.foreground).font_semibold().text_size(11.5).max_w(150).truncate().tooltip(item.repo).child(item.repo.split("/")[1] ?? item.repo)))
+        .when(this.all() && Boolean(item.repo), (e) => e.child(div().px(6).py(1).rounded(4).border_1().border_color(t.border).bg(t.background).text_color(t.foreground).font_semibold().text_size(11.5).max_w(260).truncate().tooltip(item.repo).child(item.repo)))
         .when(Boolean(item.headRefName), (e) => e.child(div().px(6).py(1).rounded(4).border_1().border_color(`${p.link}55`).bg(`${p.link}16`).text_color(p.link).font_family("JetBrains Mono").text_size(11.5).max_w(190).truncate().child(`${item.headRefName} → ${item.baseRefName}`)))
         .when(item.additions !== undefined, (e) => e.child(div().text_color(p.open).child(`+${item.additions}`)).child(div().text_color(p.closed).child(`−${item.deletions}`)))
         .when(conflict, (e) => e.child(div().px(5).rounded(4).border_1().border_color(`${p.closed}88`).text_color(p.closed).text_size(11).child("Conflicts")))
