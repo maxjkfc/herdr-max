@@ -1,6 +1,6 @@
 # herdr-max
 
-A developer-focused Herdr desktop layout (`layouts/main-custom.json`) and modular extensions (`spaces-plus`, `worktree-plus`, `status-quota`, `workspace-status-plus`, `tmux-prefix`, `picker-copy`, `tabs-plus`, `git-hub`, `git-graph`, `git-remote`) that combine Spaces and Git Worktrees into a single tree with live agent & GitHub Issue badges, bring Herdr TUI's `Ctrl+A` prefix workflow to the desktop app, track multi-account Claude/Codex/Gemini quotas in the bottom-left sidebar, unify `Changes | Graph | Remote` into a single right-hand **Git** panel (with PR diff/merge and 1-click Issue-to-Worktree), and display lightweight macOS CPU/RAM/SSD stats in the bottom bar.
+A developer-focused Herdr desktop layout (`layouts/main-custom.json`) and modular extensions (`spaces-plus`, `worktree-plus`, `status-quota`, `workspace-status-plus`, `tmux-prefix`, `picker-copy`, `tabs-plus`, `git-hub`, `git-graph`, `git-remote`) that combine Spaces and Git Worktrees into a single tree with live agent & GitHub Issue badges, bring Herdr TUI's `Ctrl+A` prefix workflow to the desktop app, track multi-account Claude/Codex/Gemini quotas in the bottom-left sidebar, unify `Changes | Graph | PRs | Issues | CI` into a single right-hand **Git** panel (with PR diff/merge and 1-click Issue-to-Worktree), and display lightweight macOS CPU/RAM/SSD stats in the bottom bar.
 
 ![herdr-max](preview.png)
 
@@ -13,7 +13,7 @@ A developer-focused Herdr desktop layout (`layouts/main-custom.json`) and modula
   4. **Sidebar Footer (`workspace-chrome`, `69px`)**: Settings & Add machine controls.
 - **Main Work Area (Right)**:
   1. **Top (`tabs`, `42px`, mod `tabs-plus`)**: Tab bar cloned from Herdr's `tabs`, keeping a clean 2-button right-hand panel toggle: **Files** and **Git**.
-  2. **Center (`work-body`)**: Active terminal panes with collapsible right-hand `panel` (`files` and `git` stack, `368px`). Inside `git`, a 40px `git-hub` switcher bar toggles `git-body` between **Changes** (`Ctrl+A` → `d`), **Graph** (`git-graph`, `Ctrl+A` → `r`), and **Remote** (`github`, `Ctrl+A` → `o`, with 88%×92% Issue/PR dialogs, PR Files Changed diff tab, direct PR merge, and 1-click Issue-to-Worktree creation).
+  2. **Center (`work-body`)**: Active terminal panes with collapsible right-hand `panel` (`files` and `git` stack, `368px`). Inside `git`, a 40px `git-hub` switcher bar toggles `git-body` between **Changes** (`Ctrl+A` → `d`), **Graph** (`git-graph`, `Ctrl+A` → `r`), and **PRs / Issues / CI** (the `git-remote` mod, `Ctrl+A` → `o`, with 88%×92% Issue/PR dialogs, PR Files Changed diff tab, direct PR merge, and 1-click Issue-to-Worktree creation).
   3. **Bottom Status Bar (`workspace-status-plus`, `28px`)**: Left shows machine, git branch, agent count and how many `needs you` / `done`; right shows live `CPU %`, `RAM used/totalG (%)`, `SSD 剩 G`, and the command palette shortcut (`⌘P commands`).
 
 ## How it behaves
