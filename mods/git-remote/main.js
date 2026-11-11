@@ -345,7 +345,7 @@ export default class GitHub extends View {
         .when(conflict, (e) => e.child(div().px(5).rounded(4).border_1().border_color(`${p.closed}88`).text_color(p.closed).text_size(11).child("Conflicts")))
         .when(item.isDraft, (e) => e.child(div().px(5).rounded(4).border_1().border_color(t.border).text_color(t.muted).text_size(11).child("Draft")))
         .child(div().flex_1())
-        .child(div().text_size(11.5).text_color(t.dim).child(ago(item.updatedAt))))
+        .child(div().text_size(11.5).text_color(t.dim).max_w(170).truncate().child(`${item.author?.login ? `@${item.author.login} · ` : ""}${ago(item.updatedAt)}`)))
       // Row 3: Always-visible action pills
       .child(h_flex().gap(6).pt(2).items_center()
         .child(button(`pr-diff-${item.number}`, `⇄ Diff${item.changedFiles ? ` (${item.changedFiles})` : ""}`, t, (_e, cx) => { cx.stop_propagation(); this.open(item, "pr"); }, { small: true }))
