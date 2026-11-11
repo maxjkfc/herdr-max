@@ -4,6 +4,7 @@
     "name": "main",
     "version": "0.1.12"
   },
+  "toast": "toast-plus",
   "type": "row",
   "children": [
     {

@@ -48,8 +48,8 @@ A customized [Herdr](https://herdr.dev) desktop layout (`main-custom`) and mod s
 - **Click the readout** to open the `system-monitor` popup: CPU / GPU / RAM tiles, SSD, temperature, power, fans, and local / Tailscale / public IPv4 (the public IP is looked up through `api.ipify.org` only when the popup opens or is refreshed).
 - The popup also sets the **refresh interval** (2s / 5s / 8s / 15s / 30s / manual) and has buttons that open **Activity Monitor** or **macmon** in a new Herdr tab.
 
-### 4b. `toast` — Restyled Notifications
-- Rounded card with a level-colored border, accent strip, and icon badge. Where a toast appears is decided by Herdr and cannot be changed from a mod.
+### 4b. `toast-plus` — Restyled Notifications
+- Rounded card with a level-colored border, accent strip, and icon badge. It is not a copy of Herdr's `toast` any more: `layouts/main-custom.json` selects it with the root key `"toast": "toast-plus"` (Herdr 0.1.15+), so Herdr updating or resetting its shipped `toast` does not touch it. Where a toast appears is decided by Herdr and cannot be changed from a mod.
 
 ### 5. `tmux-prefix` & `picker-copy` — Herdr TUI (`Ctrl+A`) Keybindings
 - Brings Herdr TUI's `Ctrl+A` prefix workflow to Herdr App, reading bindings dynamically from `keys.json` (`mod:tmux-prefix`).
