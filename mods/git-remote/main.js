@@ -21,6 +21,8 @@ const STATES = {
 };
 const METHODS = [["merge", "Merge", "pr-merged"], ["squash", "Squash", "commit"], ["rebase", "Rebase", "branch"]];
 
+// One PR/issue across repos: its number alone repeats in the All-repos view, so ids and merge state key on this.
+const refOf = (item) => `${item.repo}#${item.number}`;
 const remembered = (key, fallback = {}) => { try { return JSON.parse(localStorage.getItem(key) ?? "null") ?? fallback; } catch { return fallback; } };
 const keep = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* full: memory only */ } };
 function find(node, id) {
@@ -63,7 +65,7 @@ export default class GitHub extends View {
     this.tab = shared("git-remote.tab") ?? "prs";
     this.f = remembered("filters", null) ?? { prs: { state: "open", mine: false }, issues: { state: "open", mine: false }, actions: { failing: false, branch: false } };
     this.limit = PAGE; this.data = {}; this.locals = {}; this.query = "";
-    this.selectedIdx = 0; this.inlineMergeNum = null; this.mergingNum = null;
+    this.selectedIdx = 0; this.inlineMergeRef = null; this.mergingRef = null;
     this.input = InputState.new({ placeholder: "篩選標題、#編號、分支或作者…" });
     this.input.on("change", (_e, cx) => { this.query = this.input.value(); this.limit = PAGE; this.selectedIdx = 0; cx.notify(); });
     this.input.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
@@ -202,12 +204,12 @@ export default class GitHub extends View {
   }
 
   setTab(tab, cx) {
-    this.tab = tab; this.limit = PAGE; this.selectedIdx = 0; this.inlineMergeNum = null;
+    this.tab = tab; this.limit = PAGE; this.selectedIdx = 0; this.inlineMergeRef = null;
     setShared("git-remote.tab", tab); setShared("git.subtab", tab);
     this.refresh(cx); cx.notify();
   }
   setFilter(tab, patch, cx) {
-    this.limit = PAGE; this.selectedIdx = 0; this.inlineMergeNum = null;
+    this.limit = PAGE; this.selectedIdx = 0; this.inlineMergeRef = null;
     this.f[tab] = { ...this.f[tab], ...patch }; keep("filters", this.f);
     this.refresh(cx); cx.notify();
   }
@@ -263,20 +265,20 @@ export default class GitHub extends View {
       .catch((e) => notify({ title: "Worktree 建立失敗", body: String(e?.message ?? e), level: "error" }));
   }
   inlineMerge(item, method, cx) {
-    if (this.mergingNum) return;
-    this.mergingNum = item.number;
+    if (this.mergingRef) return;
+    this.mergingRef = refOf(item);
     cx.spawn(async (cx) => {
       try {
         const args = ["pr", "merge", String(item.number), "-R", item.repo, `--${method}`];
         if (item.headRefOid) args.push("--match-head-commit", item.headRefOid);
         await gh(args);
         notify({ title: `PR #${item.number} 已合併`, body: item.title, level: "success", timeout: 3000 });
-        this.inlineMergeNum = null;
+        this.inlineMergeRef = null;
         this.refresh(cx);
       } catch (e) {
         notify({ title: `合併 #${item.number} 失敗`, body: String(e?.message ?? e), level: "error" });
       } finally {
-        this.mergingNum = null; cx.notify();
+        this.mergingRef = null; cx.notify();
       }
     });
     cx.notify();
@@ -324,10 +326,10 @@ export default class GitHub extends View {
     const isOpen = String(item.state).toUpperCase() === "OPEN";
     const conflict = item.mergeable === "CONFLICTING";
     const blocked = !isOpen || item.isDraft || conflict || !item.headRefOid || checks?.state === "failure" || checks?.state === "pending";
-    const mergeExpanded = this.inlineMergeNum === item.number;
+    const mergeExpanded = this.inlineMergeRef === refOf(item);
     const selected = this.selectedIdx === idx;
 
-    return v_flex().id(`pr-card-${item.repo}-${item.number}`).flex_none().mx(10).my(4).p(12).gap(8).rounded(8)
+    return v_flex().id(`pr-card-${refOf(item)}`).flex_none().mx(10).my(4).p(12).gap(8).rounded(8)
       .bg(t.surface).border_1().border_color(selected ? t.accent : t.border)
       .cursor_pointer().hover((s) => s.border_color(t.accent))
       .on_click(() => { this.selectedIdx = idx; this.open(item, "pr"); })
@@ -349,18 +351,18 @@ export default class GitHub extends View {
         .child(div().text_size(11.5).text_color(t.dim).max_w(170).truncate().child(`${item.author?.login ? `@${item.author.login} · ` : ""}${ago(item.updatedAt)}`)))
       // Row 3: Always-visible action pills
       .child(h_flex().gap(6).pt(2).items_center()
-        .child(button(`pr-diff-${item.number}`, `⇄ Diff${item.changedFiles ? ` (${item.changedFiles})` : ""}`, t, (_e, cx) => { cx.stop_propagation(); this.open(item, "pr"); }, { small: true }))
-        .when(isOpen, (e) => e.child(button(`pr-m-btn-${item.number}`, mergeExpanded ? "Cancel" : "⑂ Merge…", t, (_e, cx) => {
+        .child(button(`pr-diff-${refOf(item)}`, `⇄ Diff${item.changedFiles ? ` (${item.changedFiles})` : ""}`, t, (_e, cx) => { cx.stop_propagation(); this.open(item, "pr"); }, { small: true }))
+        .when(isOpen, (e) => e.child(button(`pr-m-btn-${refOf(item)}`, mergeExpanded ? "Cancel" : "⑂ Merge…", t, (_e, cx) => {
           cx.stop_propagation();
-          this.inlineMergeNum = mergeExpanded ? null : item.number;
+          this.inlineMergeRef = mergeExpanded ? null : refOf(item);
           cx.notify();
         }, { small: true, primary: !mergeExpanded, color: p.open, enabled: !blocked })))
         .when(!isOpen, (e) => e.child(div().text_size(11.5).text_color(color).child(stateLabel)))
         .child(div().flex_1())
-        .child(button(`pr-ag-${item.number}`, "Agent", t, (_e, cx) => { cx.stop_propagation(); this.startAgent(item, "pr", cx); }, { small: true, invisible: true, icon: "agent" })))
+        .child(button(`pr-ag-${refOf(item)}`, "Agent", t, (_e, cx) => { cx.stop_propagation(); this.startAgent(item, "pr", cx); }, { small: true, invisible: true, icon: "agent" })))
       // Inline 1-click Merge Method strip when expanded
       .when(mergeExpanded && !blocked, (e) => e.child(h_flex().pt(4).gap(6).items_center().border_t(1).border_color(t.border)
-        .children(METHODS.map(([m, label, ic]) => button(`pr-im-${item.number}-${m}`, label, t, (_e, cx) => {
+        .children(METHODS.map(([m, label, ic]) => button(`pr-im-${refOf(item)}-${m}`, label, t, (_e, cx) => {
           cx.stop_propagation();
           this.inlineMerge(item, m, cx);
         }, {
@@ -368,7 +370,7 @@ export default class GitHub extends View {
           primary: m === "merge",
           color: m === "merge" ? p.open : m === "squash" ? p.done : p.link,
           icon: ic,
-          enabled: this.mergingNum !== item.number,
+          enabled: this.mergingRef !== refOf(item),
         })))));
   }
 
@@ -377,7 +379,7 @@ export default class GitHub extends View {
     const bound = this.boundWorktreeForIssue(item.repo, item.number);
     const selected = this.selectedIdx === idx;
 
-    return v_flex().id(`iss-card-${item.repo}-${item.number}`).flex_none().mx(10).my(4).p(12).gap(8).rounded(8)
+    return v_flex().id(`iss-card-${refOf(item)}`).flex_none().mx(10).my(4).p(12).gap(8).rounded(8)
       .bg(t.surface).border_1().border_color(selected ? t.accent : bound ? `${p.link}77` : t.border)
       .cursor_pointer().hover((s) => s.border_color(t.accent))
       .on_click(() => { this.selectedIdx = idx; this.open(item, "issue"); })
@@ -399,7 +401,7 @@ export default class GitHub extends View {
           if (bound) run("space.select", { id: bound.space.id });
           else this.openWorktree(item);
         }, { small: true, primary: true, color: p.link }))
-        .child(button(`iss-ag-${item.number}`, "Agent", t, (_e, cx) => {
+        .child(button(`iss-ag-${refOf(item)}`, "Agent", t, (_e, cx) => {
           cx.stop_propagation();
           this.startAgent(item, "issue", cx);
         }, { small: true, color: p.open, icon: "agent" }))
@@ -562,7 +564,7 @@ export default class GitHub extends View {
       else this.open(sel, tab === "prs" ? "pr" : "issue");
       cx.stop_propagation();
     } else if (k === "m" && this.shownTab() === "prs" && sel) {
-      this.inlineMergeNum = this.inlineMergeNum === sel.number ? null : sel.number;
+      this.inlineMergeRef = this.inlineMergeRef === refOf(sel) ? null : refOf(sel);
       cx.stop_propagation(); cx.notify();
     } else if (k === "w" && this.shownTab() === "issues" && sel) {
       const bound = this.boundWorktreeForIssue(sel.repo, sel.number);
