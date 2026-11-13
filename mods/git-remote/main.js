@@ -132,7 +132,7 @@ export default class GitHub extends View {
 
   // Act as the gh account the focused folder wants: the pick, else its .envrc, else gh's active one, resolved to a
   // name each time so the chip, the cache keys and the gh calls agree even when something flips gh's active account.
-  // Reload who that is when it changed. On another machine nothing changes: its gh is its own.
+  // Reload who that is when it changed. A folder on another machine has no local .envrc to read, so the account stays as it was.
   async syncUser() {
     const { cwd, on } = this.where();
     if (cwd && !on) {
@@ -164,17 +164,22 @@ export default class GitHub extends View {
   async follow() {
     await this.syncUser();
     const { cwd, on, space } = this.where();
-    if (!cwd || on) return;
+    if (!cwd) return;
     const id = JSON.stringify([cwd, on]);
-    if (!(id in this.remotes)) { this.remotes[id] = await remoteOf(cwd, on); keep("remotes", this.remotes); }
-    const found = githubSlug(this.remotes[id]);
+    // GitHub is reached through the local gh whatever machine the folder is on; only the origin URL is read over there.
+    // A failed read on another machine (offline, not a repo) is not remembered, so the next refresh asks again.
+    if (!(id in this.remotes)) {
+      const got = await remoteOf(cwd, on);
+      if (got || !on) { this.remotes[id] = got; keep("remotes", this.remotes); }
+    }
+    const found = githubSlug(this.remotes[id] ?? null);
     if ((this.spaceRepos[space] ?? null) !== found) { this.spaceRepos[space] = found; keep("spaces", this.spaceRepos); }
   }
 
   // The platform of the focused folder's origin when it is not one this panel can show (GitLab, Bitbucket, …).
   foreign() {
     const { cwd, on } = this.where();
-    const r = cwd && !on ? this.remotes[JSON.stringify([cwd, on])] : null;
+    const r = cwd ? this.remotes[JSON.stringify([cwd, on])] : null;
     return r && !githubSlug(r) ? r : null;
   }
 
