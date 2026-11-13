@@ -190,6 +190,13 @@
                           "active": "changes"
                         }
                       ]
+                    },
+                    {
+                      "id": "agent",
+                      "type": "block",
+                      "content": {
+                        "mod": "agent-info"
+                      }
                     }
                   ],
                   "active": "files"
