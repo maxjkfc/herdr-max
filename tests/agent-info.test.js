@@ -38,7 +38,8 @@ writeFileSync(subs.nested, jsonl({ type: "session", id: "n", timestamp: "2026-01
 writeFileSync(subs.b, jsonl({ type: "session", id: "b", timestamp: "2026-01-01T00:02:00Z" }, init("do B")));
 
 const summarize = (files, open) => {
-  const r = Bun.spawnSync(["jq", "-n", "-R", "-c", "--arg", "main", main, "--arg", "open", open.join("\n"), JQ_PROG, ...files]);
+  const input = Bun.spawnSync(["grep", "-H", "^", ...files]).stdout;
+  const r = Bun.spawnSync(["jq", "-n", "-R", "-c", "--arg", "kind", "omp", "--arg", "main", main, "--arg", "open", open.join("\n"), "--arg", "title", "", "--argjson", "metas", "{}", "--argjson", "prices", "{}", JQ_PROG], { stdin: input });
   expect(r.exitCode).toBe(0);
   return JSON.parse(r.stdout.toString());
 };
@@ -98,7 +99,7 @@ test("PROBE finds the main session and live sub-agents a process holds open", ()
   const holder = Bun.spawn(["sh", "-c", 'exec 3>>"$1" 4>>"$2"; exec sleep 30', "sh", main, subs.nested]);
   try {
     Bun.sleepSync(300);
-    const r = Bun.spawnSync(["sh", "-c", PROBE, "sh", String(holder.pid), subs.a, JQ_PROG]);
+    const r = Bun.spawnSync(["sh", "-c", PROBE, "sh", "omp", String(holder.pid), subs.a, JQ_PROG, "{}"]);
     const raw = JSON.parse(r.stdout.toString());
     expect(raw.main).toBe(main);
     expect(raw.open.sort()).toEqual([main, subs.nested].sort());
@@ -114,4 +115,35 @@ test("formatters", () => {
   expect([fmtCost(0), fmtCost(0.0042), fmtCost(1.856), fmtCost(135.4)]).toEqual(["$0", "$0.0042", "$1.86", "$135"]);
   const now = Date.parse("2026-01-01T03:00:00Z");
   expect([ago("2026-01-01T02:59:30Z", now), ago("2026-01-01T02:48:00Z", now), ago("2026-01-01T00:00:00Z", now), ago(null, now)]).toEqual(["<1m", "12m", "3h", ""]);
+});
+
+test("Claude counts repeated message blocks once but keeps their text and tool activity", () => {
+  const file = join(root, "claude.jsonl");
+  const message = { id: "msg-1", model: "m", usage: { input_tokens: 10, output_tokens: 2, cache_read_input_tokens: 20, cache_creation_input_tokens: 4 } };
+  writeFileSync(file, jsonl(
+    { type: "assistant", sessionId: "s", message: { ...message, content: [{ type: "text", text: "answer" }] } },
+    { type: "assistant", sessionId: "s", message: { ...message, content: [{ type: "tool_use", name: "Read", input: { file_path: "file.txt" } }] } },
+    { type: "assistant", isSidechain: true, message: { ...message, id: "child", content: [{ type: "text", text: "not the main reply" }] } },
+  ));
+  const input = Bun.spawnSync(["grep", "-H", "^", file]).stdout;
+  const r = Bun.spawnSync(["jq", "-nRc", "--arg", "kind", "claude", "--arg", "main", file, "--arg", "open", "", "--arg", "title", "", "--argjson", "metas", "{}", "--argjson", "prices", '{"m":{"input":1,"output":1,"cacheRead":1,"cacheWrite":1}}', JQ_PROG], { stdin: input });
+  expect(r.exitCode).toBe(0);
+  const s = JSON.parse(r.stdout.toString()).files[file];
+  expect(s.tok.total).toBe(36);
+  expect(s.replies).toBe(1);
+  expect(s.reply).toBe("answer");
+  expect(s.doing.intent).toBe("file.txt");
+});
+
+test("Codex uses the latest cumulative usage and rate limits", () => {
+  const file = join(root, "codex.jsonl");
+  const event = (input, cached, output, percent) => ({ type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: input, cached_input_tokens: cached, output_tokens: output, total_tokens: input + output }, last_token_usage: { input_tokens: 30, output_tokens: 2 }, model_context_window: 100 }, rate_limits: { primary: { used_percent: percent } } } });
+  writeFileSync(file, jsonl({ type: "session_meta", payload: { id: "c" } }, event(20, 10, 1, 20), event(100, 80, 5, 30)));
+  const input = Bun.spawnSync(["grep", "-H", "^", file]).stdout;
+  const r = Bun.spawnSync(["jq", "-nRc", "--arg", "kind", "codex", "--arg", "main", file, "--arg", "open", "", "--arg", "title", "", "--argjson", "metas", "{}", "--argjson", "prices", "{}", JQ_PROG], { stdin: input });
+  expect(r.exitCode).toBe(0);
+  const s = JSON.parse(r.stdout.toString()).files[file];
+  expect(s.tok).toEqual({ input: 20, output: 5, cacheRead: 80, cacheWrite: 0, total: 105 });
+  expect(s.ctx).toBe(32);
+  expect(s.limits.primary.used_percent).toBe(30);
 });

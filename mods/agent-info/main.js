@@ -1,10 +1,10 @@
-// The focused omp agent's session: id, model, tokens, cost, what it is doing, its summary and its sub-agents.
+// The focused coding agent's session, usage, recent activity and sub-agents.
 // Follows the focused agent pane (local or on another machine); keeps the last one while focus is elsewhere.
 
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { agents, exec, focused, hc, layout, theme, window } from "herdr";
-import { PROBE, JQ_PROG, shape, fmtTokens, fmtCost, ago } from "./probe.js";
+import { PROBE, PRICES, JQ_PROG, shape, fmtTokens, fmtCost, ago } from "./probe.js";
 
 const POLL_MS = 4000;
 const MONO = "JetBrains Mono";
@@ -26,7 +26,14 @@ function visible() {
   return Boolean(panel && !panel.hidden && body?.active === "agent");
 }
 
-const isOmp = (a) => a?.app === "omp" || a?.program?.key === "omp";
+const kindOf = (a) => {
+  const names = [a?.app, a?.program?.key];
+  if (names.includes("omp")) return "omp";
+  if (names.includes("claude") || names.includes("claude-code")) return "claude";
+  if (names.includes("codex")) return "codex";
+  return null;
+};
+const cost = (value, unpriced, estimated) => unpriced || value == null ? "—" : `${estimated ? "≈" : ""}${fmtCost(value)}`;
 const machineOf = (address) => (address?.includes("/") ? address.split("/")[0] : null);
 const clip = (s, n) => (s && s.length > n ? `${s.slice(0, n)}…` : s ?? "");
 const firstLine = (s) => (s ?? "").split("\n").find((l) => l.trim()) ?? "";
@@ -42,7 +49,7 @@ function when(iso) {
 
 const ERRORS = {
   nojq: "這台機器找不到 jq，無法讀 session（brew install jq）",
-  nosession: "這個 omp 沒有開著的 session 檔",
+  nosession: "找不到這個 agent 的 session 檔",
   noprocess: "這個 terminal 沒有在跑的程式",
 };
 
@@ -80,7 +87,8 @@ export default class AgentInfo extends View {
   refresh(cx) {
     const a = this.target();
     this.select(a?.address ?? null);
-    if (!a || !isOmp(a) || this.loading) return;
+    const kind = kindOf(a);
+    if (!a || !kind || this.loading) return;
     const address = a.address;
     this.loading = true;
     cx.spawn(async (cx) => {
@@ -88,8 +96,10 @@ export default class AgentInfo extends View {
         const got = await hc(["get", address, "--json"]);
         const fg = got.code === 0 ? JSON.parse(got.stdout)?.foreground : null;
         if (!fg?.pid) { if (this.address === address) { this.error = "noprocess"; this.data = null; } return; }
+        const on = machineOf(address);
+        const prices = kind === "omp" ? "{}" : (await exec("sh", ["-c", PRICES], { on, timeout: 20000 })).stdout.trim() || "{}";
         const skip = Object.keys(this.kept).join("\n");
-        const r = await exec("sh", ["-c", PROBE, "sh", String(fg.pid), skip, JQ_PROG], { on: machineOf(address), timeout: 20000 });
+        const r = await exec("sh", ["-c", PROBE, "sh", kind, String(fg.pid), skip, JQ_PROG, prices], { on, timeout: 20000 });
         if (this.address !== address) return;
         const raw = JSON.parse(r.stdout || "{}");
         if (raw.error || !raw.main) { this.error = raw.error ?? (r.stderr.trim() || `exit ${r.code}`); this.data = null; return; }
@@ -101,7 +111,7 @@ export default class AgentInfo extends View {
         if (this.address === address) { this.error = String(e?.message ?? e); this.data = null; }
       } finally {
         this.loading = false;
-        this.at = Date.now();
+        this.at = this.address === address ? Date.now() : 0;
         cx.notify();
       }
     });
@@ -194,11 +204,13 @@ export default class AgentInfo extends View {
     const m = d.main, tok = m.tok ?? {};
     return this.card(t, "用量", null,
       h_flex().gap(8)
-        .child(this.tile(t, "花費", fmtCost(m.cost), d.subs.length ? `含 subagent ${fmtCost(d.total)}` : null, t.accent))
-        .child(this.tile(t, "目前上下文", fmtTokens(m.ctx), "最後一次請求"))
+        .child(this.tile(t, d.estimated ? "花費（估算）" : "花費", cost(m.cost, m.unpriced, d.estimated), d.subs.length ? `含 subagent ${cost(d.total, d.unpriced, d.estimated)}` : null, t.accent))
+        .child(this.tile(t, "目前上下文", fmtTokens(m.ctx), m.window ? `上限 ${fmtTokens(m.window)}` : "最後一次請求"))
         .child(this.tile(t, "累計 tokens", fmtTokens(tok.total), d.subs.length ? `subagent ${fmtTokens(d.subTokens)}` : null)),
       div().text_size(10.5).text_color(t.dim).whitespace_normal()
         .child(`輸入 ${fmtTokens(tok.input)} · 輸出 ${fmtTokens(tok.output)} · cache 讀 ${fmtTokens(tok.cacheRead)} · cache 寫 ${fmtTokens(tok.cacheWrite)}`),
+      d.estimated ? div().text_size(10.5).text_color(t.dim).whitespace_normal().child("依 agent 所在機器的模型價目估算，非帳單；缺價目顯示 —") : null,
+      m.limits ? div().text_size(10.5).text_color(t.dim).child(`Codex 配額：5h ${m.limits.primary?.used_percent ?? "—"}% · 週 ${m.limits.secondary?.used_percent ?? "—"}%`) : null,
       m.aux ? div().text_size(10.5).text_color(t.dim).child(`其中背景呼叫（標題、自動判斷）${fmtCost(m.aux)}`) : null);
   }
 
@@ -233,7 +245,7 @@ export default class AgentInfo extends View {
   subRow(t, s) {
     const id = `ai-sub-${s.rel}`;
     const open = this.expanded.has(id);
-    const words = { running: "執行中", done: "已完成", stopped: "已中斷" };
+    const words = { running: "執行中", done: "已完成", stopped: "已中斷", unknown: "狀態未知" };
     const note = s.state === "running" ? (s.doing?.intent || s.doing?.tool) : firstLine(s.reply) || s.doing?.intent;
     const model = (s.model ?? "").split("/").pop().replace(/:.*$/, "");
     const row = v_flex().id(id).pl(s.depth * 14).py(5).gap(2).rounded(6).cursor_pointer().hover((x) => x.bg(t.hover))
@@ -243,7 +255,7 @@ export default class AgentInfo extends View {
         .child(this.dot(t, s.state))
         .child(div().min_w(0).truncate().text_size(12).font_semibold().child(s.name))
         .child(div().flex_1().min_w(0).truncate().text_size(10.5).text_color(t.dim).child([s.agent, model].filter(Boolean).join(" · ")))
-        .child(div().flex_none().text_size(11).font_semibold().text_color(t.muted).child(fmtCost(s.cost))))
+        .child(div().flex_none().text_size(11).font_semibold().text_color(t.muted).child(cost(s.cost, s.unpriced, this.data?.estimated))))
       .when(Boolean(note), (el) => el.child(div().pl(30).text_size(11).text_color(t.muted).truncate()
         .child(`${s.state === "running" ? "" : `${words[s.state]} · `}${clip(note, 140)}${s.last ? ` · ${ago(s.last)}` : ""}`)));
     if (!open) return [row];
@@ -259,8 +271,8 @@ export default class AgentInfo extends View {
   subagents(t, d) {
     if (!d.subs.length) return this.card(t, "Subagents", null, div().text_size(11.5).text_color(t.dim).child("這個 session 還沒開過 subagent"));
     const c = d.counts;
-    const tally = [c.running && `${c.running} 執行中`, c.done && `${c.done} 完成`, c.stopped && `${c.stopped} 中斷`].filter(Boolean).join(" · ");
-    return this.card(t, `Subagents · ${d.subs.length}`, div().text_size(10.5).text_color(t.dim).child(`${tally} · ${fmtCost(d.subCost)}`),
+    const tally = [c.running && `${c.running} 執行中`, c.done && `${c.done} 完成`, c.stopped && `${c.stopped} 中斷`, c.unknown && `${c.unknown} 未知`].filter(Boolean).join(" · ");
+    return this.card(t, `Subagents · ${d.subs.length}`, div().text_size(10.5).text_color(t.dim).child(`${tally} · ${cost(d.subCost, d.subs.some((s) => s.unpriced), d.estimated)}`),
       v_flex().children(d.subs.flatMap((s) => this.subRow(t, s))));
   }
 
@@ -273,7 +285,7 @@ export default class AgentInfo extends View {
       .child(this.header(t, a));
     const note = (text) => frame.child(div().p(16).text_size(12).text_color(t.dim).whitespace_normal().child(text));
     if (!a) return note("先點一個 agent 的 pane，這裡會顯示它的 session、用量與 subagent。");
-    if (!isOmp(a)) return note(`目前只支援 omp；這個 agent 是 ${a.program?.name ?? a.app ?? "未知"}。`);
+    if (!kindOf(a)) return note(`不支援這個 agent：${a.program?.name ?? a.app ?? "未知"}。`);
     if (this.error) return note(ERRORS[this.error] ?? `讀取失敗：${this.error}`);
     const d = this.data;
     if (!d) return note("讀取中…");
