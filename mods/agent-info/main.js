@@ -1,12 +1,15 @@
-// The focused coding agent's session, usage, recent activity and sub-agents.
+// The focused coding agent: whether it needs you (warnings, progress, output), then session, usage and sub-agents.
 // Follows the focused agent pane (local or on another machine); keeps the last one while focus is elsewhere.
 
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { agents, exec, focused, hc, layout, theme, window } from "herdr";
-import { PROBE, PRICES, JQ_PROG, shape, fmtTokens, fmtCost, ago } from "./probe.js";
+import { PROBE, MODELS, JQ_PROG, shape, fmtTokens, fmtCost, ago } from "./probe.js";
 
 const POLL_MS = 4000;
+const STALE_MS = 10 * 60000; // "working" with nothing logged for this long: likely stuck
+const CTX_WARN = 85; // context % worth a warning
+const STREAK_WARN = 3; // tool failures in a row worth a warning
 const MONO = "JetBrains Mono";
 const ICON = "mods/agent-info/icons";
 
@@ -36,6 +39,10 @@ const kindOf = (a) => {
 const cost = (value, unpriced, estimated) => unpriced || value == null ? "—" : `${estimated ? "≈" : ""}${fmtCost(value)}`;
 const machineOf = (address) => (address?.includes("/") ? address.split("/")[0] : null);
 const clip = (s, n) => (s && s.length > n ? `${s.slice(0, n)}…` : s ?? "");
+const pct = (m) => (m.window && m.ctx != null ? Math.round((m.ctx / m.window) * 100) : null);
+const home = (p) => p.replace(/^\/Users\/[^/]+|^\/home\/[^/]+/, "~");
+// A changed file, relative to the session's folder when inside it.
+const shortPath = (p, cwd) => (cwd && p.startsWith(`${cwd}/`) ? p.slice(cwd.length + 1) : home(p));
 const firstLine = (s) => (s ?? "").split("\n").find((l) => l.trim()) ?? "";
 const clean = (s) => (s ?? "").replace(/^[^\p{L}\p{N}]+/u, "").trim();
 
@@ -64,6 +71,7 @@ export default class AgentInfo extends View {
     this.mainPath = null;
     this.expanded = new Set();
     this.showSummary = false;
+    this.models = new Map(); // machine → { json, at }: omp's model rates and context windows, read hourly
     cx.timer.every(POLL_MS, (cx) => { if (window()?.active && visible()) this.refresh(cx); });
   }
 
@@ -97,9 +105,9 @@ export default class AgentInfo extends View {
         const fg = got.code === 0 ? JSON.parse(got.stdout)?.foreground : null;
         if (!fg?.pid) { if (this.address === address) { this.error = "noprocess"; this.data = null; } return; }
         const on = machineOf(address);
-        const prices = kind === "omp" ? "{}" : (await exec("sh", ["-c", PRICES], { on, timeout: 20000 })).stdout.trim() || "{}";
+        const models = await this.modelsOn(on);
         const skip = Object.keys(this.kept).join("\n");
-        const r = await exec("sh", ["-c", PROBE, "sh", kind, String(fg.pid), skip, JQ_PROG, prices], { on, timeout: 20000 });
+        const r = await exec("sh", ["-c", PROBE, "sh", kind, String(fg.pid), skip, JQ_PROG, models], { on, timeout: 20000 });
         if (this.address !== address) return;
         const raw = JSON.parse(r.stdout || "{}");
         if (raw.error || !raw.main) { this.error = raw.error ?? (r.stderr.trim() || `exit ${r.code}`); this.data = null; return; }
@@ -115,6 +123,15 @@ export default class AgentInfo extends View {
         cx.notify();
       }
     });
+  }
+
+  async modelsOn(on) {
+    const key = on ?? "";
+    const hit = this.models.get(key);
+    if (hit && Date.now() - hit.at < 3600000) return hit.json;
+    const json = (await exec("sh", ["-c", MODELS], { on, timeout: 20000 })).stdout.trim() || "{}";
+    this.models.set(key, { json, at: Date.now() });
+    return json;
   }
 
   card(t, title, right, ...rows) {
@@ -205,13 +222,69 @@ export default class AgentInfo extends View {
     return this.card(t, "用量", null,
       h_flex().gap(8)
         .child(this.tile(t, d.estimated ? "花費（估算）" : "花費", cost(m.cost, m.unpriced, d.estimated), d.subs.length ? `含 subagent ${cost(d.total, d.unpriced, d.estimated)}` : null, t.accent))
-        .child(this.tile(t, "目前上下文", fmtTokens(m.ctx), m.window ? `上限 ${fmtTokens(m.window)}` : "最後一次請求"))
+        .child(this.tile(t, "目前上下文", pct(m) != null ? `${pct(m)}%` : fmtTokens(m.ctx),
+          m.window ? `${fmtTokens(m.ctx)} / ${fmtTokens(m.window)}` : "最後一次請求",
+          pct(m) >= CTX_WARN ? (t.warning ?? t.blocked) : null))
         .child(this.tile(t, "累計 tokens", fmtTokens(tok.total), d.subs.length ? `subagent ${fmtTokens(d.subTokens)}` : null)),
       div().text_size(10.5).text_color(t.dim).whitespace_normal()
         .child(`輸入 ${fmtTokens(tok.input)} · 輸出 ${fmtTokens(tok.output)} · cache 讀 ${fmtTokens(tok.cacheRead)} · cache 寫 ${fmtTokens(tok.cacheWrite)}`),
       d.estimated ? div().text_size(10.5).text_color(t.dim).whitespace_normal().child("依 agent 所在機器的模型價目估算，非帳單；缺價目顯示 —") : null,
       m.limits ? div().text_size(10.5).text_color(t.dim).child(`Codex 配額：5h ${m.limits.primary?.used_percent ?? "—"}% · 週 ${m.limits.secondary?.used_percent ?? "—"}%`) : null,
       m.aux ? div().text_size(10.5).text_color(t.dim).child(`其中背景呼叫（標題、自動判斷）${fmtCost(m.aux)}`) : null);
+  }
+
+  // Reasons to look now: each names what the log shows, not a guess at the cause.
+  alerts(t, m, a) {
+    const list = [];
+    if (m.error) list.push(["API 錯誤", m.error]);
+    if ((m.errStreak ?? 0) >= STREAK_WARN)
+      list.push([`工具連續失敗 ${m.errStreak} 次${m.toolError?.tool ? `（${m.toolError.tool}）` : ""}`, firstLine(m.toolError?.text)]);
+    if (a?.status === "working" && m.last && Date.now() - Date.parse(m.last) > STALE_MS)
+      list.push([`顯示工作中，但已 ${ago(m.last)} 沒有新紀錄`, "可能卡住，或在跑很久的指令"]);
+    if (pct(m) >= CTX_WARN) list.push([`上下文已用 ${pct(m)}%`, "接近上限，之後會壓縮或需要開新 session"]);
+    if (!list.length) return null;
+    const color = t.warning ?? t.blocked;
+    return v_flex().gap(6).p(10).rounded(10).bg(t.surface).border_1().border_color(color)
+      .child(div().text_size(11).font_semibold().text_color(color).child("需要注意"))
+      .children(list.map(([head, detail]) => v_flex().gap(1)
+        .child(div().text_size(12).font_semibold().whitespace_normal().child(head))
+        .when(Boolean(detail), (el) => el.child(div().text_size(11).text_color(t.muted).whitespace_normal().child(clip(detail, 200))))));
+  }
+
+  // The agent's own task list, the PR it opened and the files it changed.
+  progress(t, m) {
+    const p = m.plan;
+    const files = m.touched ?? [];
+    const rows = [];
+    if (p?.total) {
+      const share = Math.round((p.done / p.total) * 100);
+      rows.push(h_flex().items_center().gap(8)
+        .child(div().flex_none().font_semibold().child(`${p.done} / ${p.total} 完成`))
+        .child(div().flex_1().h(5).rounded(3).bg(t.background).overflow_hidden()
+          .child(div().h(5).w(`${Math.max(share, 2)}%`).rounded(3).bg(p.done === p.total ? t.done : t.accent))));
+      if (p.current) rows.push(div().text_size(11.5).text_color(t.muted).whitespace_normal().child(`進行中：${clip(p.current, 200)}`));
+    }
+    if (m.pr) {
+      const [, repo, num] = m.pr.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/) ?? [];
+      rows.push(h_flex().id("ai-pr").gap(6).items_center().cursor_pointer().rounded(6).hover((x) => x.bg(t.hover)).tooltip(m.pr)
+        .on_click(() => exec("open", [m.pr]))
+        .child(div().flex_none().text_color(t.muted).child("PR"))
+        .child(div().min_w(0).truncate().font_semibold().text_color(t.accent).child(num ? `#${num} · ${repo}` : m.pr)));
+    }
+    if (files.length || m.lines) {
+      const lines = m.lines ? ` · +${m.lines.added} −${m.lines.removed} 行` : "";
+      const open = this.expanded.has("ai-files");
+      const shown = open ? files : files.slice(-5);
+      rows.push(v_flex().gap(2)
+        .child(h_flex().id("ai-files").gap(6).items_center()
+          .when(files.length > 5, (el) => el.cursor_pointer().tooltip(open ? "收合" : "顯示全部")
+            .on_click((_e, cx) => { this.toggle("ai-files"); cx.notify(); }))
+          .child(div().text_color(t.muted).child(`改了 ${files.length} 個檔${lines}`))
+          .when(files.length > 5, (el) => el.child(div().text_size(10.5).text_color(t.dim).child(open ? "收合" : `顯示全部（最近 5 個）`))))
+        .children(shown.map((f) => div().text_size(11).font_family(MONO).text_color(t.dim).truncate().child(shortPath(f, m.cwd)))));
+    }
+    if (!rows.length) rows.push(div().text_size(11.5).text_color(t.dim).whitespace_normal().child("還沒有任務清單、PR 或改過的檔案"));
+    return this.card(t, "進度與產出", null, ...rows);
   }
 
   activity(t, m, a) {
@@ -223,9 +296,10 @@ export default class AgentInfo extends View {
         .child(div().flex_1().min_w(0).truncate().text_size(12).child(doing.intent || doing.tool))
         .child(div().flex_none().text_size(10.5).text_color(t.dim).child(`${doing.tool} · ${ago(doing.at)}`))
       : null;
+    const fails = m.toolErrors ? div().text_size(10.5).text_color(t.dim).child(`工具失敗共 ${m.toolErrors} 次${m.errStreak ? `，最近連續 ${m.errStreak} 次` : ""}`) : null;
     return this.card(t, "近況", m.last ? div().text_size(10.5).text_color(t.dim).child(`最後活動 ${ago(m.last)} 前`) : null,
       now,
-      m.error ? div().text_size(11.5).text_color(t.blocked).whitespace_normal().child(`錯誤：${m.error}`) : null,
+      fails,
       this.para(t, "ai-prompt", "最後的指令", m.prompt, 220),
       this.para(t, "ai-reply", "最後的回覆", m.reply, 320));
   }
@@ -268,12 +342,20 @@ export default class AgentInfo extends View {
     return [row, detail];
   }
 
+  // Folded to a one-line tally: open it when tracking a sub-agent down.
   subagents(t, d) {
     if (!d.subs.length) return this.card(t, "Subagents", null, div().text_size(11.5).text_color(t.dim).child("這個 session 還沒開過 subagent"));
     const c = d.counts;
+    const open = this.expanded.has("ai-subs");
     const tally = [c.running && `${c.running} 執行中`, c.done && `${c.done} 完成`, c.stopped && `${c.stopped} 中斷`, c.unknown && `${c.unknown} 未知`].filter(Boolean).join(" · ");
-    return this.card(t, `Subagents · ${d.subs.length}`, div().text_size(10.5).text_color(t.dim).child(`${tally} · ${cost(d.subCost, d.subs.some((s) => s.unpriced), d.estimated)}`),
-      v_flex().children(d.subs.flatMap((s) => this.subRow(t, s))));
+    return v_flex().gap(6).p(10).rounded(10).bg(t.surface).border_1().border_color(t.border)
+      .child(h_flex().id("ai-subs").items_center().gap(6).cursor_pointer()
+        .on_click((_e, cx) => { this.toggle("ai-subs"); cx.notify(); })
+        .child(svg(`${ICON}/${open ? "chevron-down" : "chevron-right"}.svg`).size(11).flex_none().text_color(t.dim))
+        .child(div().flex_none().text_size(11).text_color(t.dim).font_semibold().child(`Subagents · ${d.subs.length}`))
+        .child(div().flex_1().min_w(0).truncate().text_size(10.5).text_color(t.dim)
+          .child(`${tally} · ${cost(d.subCost, d.subs.some((s) => s.unpriced), d.estimated)}`)))
+      .when(open, (el) => el.child(v_flex().children(d.subs.flatMap((s) => this.subRow(t, s)))));
   }
 
   render(cx) {
@@ -290,6 +372,8 @@ export default class AgentInfo extends View {
     const d = this.data;
     if (!d) return note("讀取中…");
     return frame.child(v_flex().id("ai-body").flex_1().min_h(0).overflow_y_scrollbar().p(10).gap(10)
+      .children([this.alerts(t, d.main, a)].filter(Boolean))
+      .child(this.progress(t, d.main))
       .child(this.session(t, d.main))
       .child(this.usage(t, d))
       .child(this.activity(t, d.main, a))

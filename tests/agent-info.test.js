@@ -39,7 +39,7 @@ writeFileSync(subs.b, jsonl({ type: "session", id: "b", timestamp: "2026-01-01T0
 
 const summarize = (files, open) => {
   const input = Bun.spawnSync(["grep", "-H", "^", ...files]).stdout;
-  const r = Bun.spawnSync(["jq", "-n", "-R", "-c", "--arg", "kind", "omp", "--arg", "main", main, "--arg", "open", open.join("\n"), "--arg", "title", "", "--argjson", "metas", "{}", "--argjson", "prices", "{}", JQ_PROG], { stdin: input });
+  const r = Bun.spawnSync(["jq", "-n", "-R", "-c", "--arg", "kind", "omp", "--arg", "main", main, "--arg", "open", open.join("\n"), "--arg", "title", "", "--argjson", "metas", "{}", "--argjson", "models", "{}", JQ_PROG], { stdin: input });
   expect(r.exitCode).toBe(0);
   return JSON.parse(r.stdout.toString());
 };
@@ -117,6 +117,14 @@ test("formatters", () => {
   expect([ago("2026-01-01T02:59:30Z", now), ago("2026-01-01T02:48:00Z", now), ago("2026-01-01T00:00:00Z", now), ago(null, now)]).toEqual(["<1m", "12m", "3h", ""]);
 });
 
+// One file through JQ_PROG as the main session of `kind`.
+const one = (kind, file, models = {}) => {
+  const input = Bun.spawnSync(["grep", "-H", "^", file]).stdout;
+  const r = Bun.spawnSync(["jq", "-nRc", "--arg", "kind", kind, "--arg", "main", file, "--arg", "open", "", "--arg", "title", "", "--argjson", "metas", "{}", "--argjson", "models", JSON.stringify(models), JQ_PROG], { stdin: input });
+  expect(r.exitCode).toBe(0);
+  return JSON.parse(r.stdout.toString()).files[file];
+};
+
 test("Claude counts repeated message blocks once but keeps their text and tool activity", () => {
   const file = join(root, "claude.jsonl");
   const message = { id: "msg-1", model: "m", usage: { input_tokens: 10, output_tokens: 2, cache_read_input_tokens: 20, cache_creation_input_tokens: 4 } };
@@ -125,25 +133,63 @@ test("Claude counts repeated message blocks once but keeps their text and tool a
     { type: "assistant", sessionId: "s", message: { ...message, content: [{ type: "tool_use", name: "Read", input: { file_path: "file.txt" } }] } },
     { type: "assistant", isSidechain: true, message: { ...message, id: "child", content: [{ type: "text", text: "not the main reply" }] } },
   ));
-  const input = Bun.spawnSync(["grep", "-H", "^", file]).stdout;
-  const r = Bun.spawnSync(["jq", "-nRc", "--arg", "kind", "claude", "--arg", "main", file, "--arg", "open", "", "--arg", "title", "", "--argjson", "metas", "{}", "--argjson", "prices", '{"m":{"input":1,"output":1,"cacheRead":1,"cacheWrite":1}}', JQ_PROG], { stdin: input });
-  expect(r.exitCode).toBe(0);
-  const s = JSON.parse(r.stdout.toString()).files[file];
+  const s = one("claude", file, { m: { cost: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 }, window: 100 } });
   expect(s.tok.total).toBe(36);
   expect(s.replies).toBe(1);
   expect(s.reply).toBe("answer");
   expect(s.doing.intent).toBe("file.txt");
+  expect(s.window).toBe(100);
+});
+
+test("Claude: task list, changed files, PR, and failing tools in a row", () => {
+  const file = join(root, "claude-work.jsonl");
+  const use = (id, content) => ({ type: "assistant", sessionId: "s", message: { id, model: "m", usage: {}, content } });
+  const result = (...errs) => ({ type: "user", parentUuid: "p", message: { content: errs.map((e) => ({ type: "tool_result", is_error: e, content: e ? "boom" : "ok" })) } });
+  writeFileSync(file, jsonl(
+    use("1", [{ type: "tool_use", name: "TodoWrite", input: { todos: [{ content: "a", status: "completed" }, { content: "b", status: "in_progress" }, { content: "c", status: "pending" }] } }]),
+    use("2", [{ type: "tool_use", name: "Edit", input: { file_path: "/code/x/a.js" } }, { type: "tool_use", name: "Write", input: { file_path: "/code/x/a.js" } }]),
+    result(true), result(false), result(true, true),
+    { type: "pr-link", prUrl: "https://github.com/o/r/pull/7" },
+    { type: "cost-state", totalCostUSD: 1, totalLinesAdded: 12, totalLinesRemoved: 3 },
+  ));
+  const s = one("claude", file);
+  expect(s.plan).toEqual({ total: 3, done: 1, current: "b" });
+  expect(s.touched).toEqual(["/code/x/a.js"]);
+  expect([s.toolErrors, s.errStreak]).toEqual([3, 2]);
+  expect(s.pr).toBe("https://github.com/o/r/pull/7");
+  expect(s.lines).toEqual({ added: 12, removed: 3 });
+});
+
+test("omp: todo progress, edited paths, and the PR from gh pr create", () => {
+  const file = join(root, "omp-work.jsonl");
+  const call = (name, args) => reply("2026-01-01T00:00:01Z", [{ type: "toolCall", name, arguments: args }], usage(1, 0));
+  const res = (toolName, text, isError = false, details) => ({ type: "message", message: { role: "toolResult", toolName, isError, content: [{ type: "text", text }], details } });
+  writeFileSync(file, jsonl(
+    call("edit", { input: "*** Begin Patch\n[/code/x/a.js#AB12]\nPUT 1:\n+x\n[/code/x/b.js#CD34]\nCUT 2\n" }),
+    call("write", { path: "local://note.md" }),
+    res("edit", "bad anchor", true),
+    call("bash", { command: "gh pr create --title t" }),
+    res("bash", "https://github.com/o/r/pull/9\n"),
+    res("todo", "", false, { phases: [{ name: "P", tasks: [{ content: "a", status: "completed" }, { content: "b", status: "abandoned" }] }] }),
+  ));
+  const s = one("omp", file, { m1: { window: 1000 } });
+  expect(s.touched).toEqual(["/code/x/a.js", "/code/x/b.js"]);
+  expect([s.toolErrors, s.errStreak]).toEqual([1, 0]);
+  expect(s.pr).toBe("https://github.com/o/r/pull/9");
+  expect(s.plan).toEqual({ total: 1, done: 1, current: null });
+  expect(s.window).toBe(1000);
 });
 
 test("Codex uses the latest cumulative usage and rate limits", () => {
   const file = join(root, "codex.jsonl");
   const event = (input, cached, output, percent) => ({ type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: input, cached_input_tokens: cached, output_tokens: output, total_tokens: input + output }, last_token_usage: { input_tokens: 30, output_tokens: 2 }, model_context_window: 100 }, rate_limits: { primary: { used_percent: percent } } } });
-  writeFileSync(file, jsonl({ type: "session_meta", payload: { id: "c" } }, event(20, 10, 1, 20), event(100, 80, 5, 30)));
-  const input = Bun.spawnSync(["grep", "-H", "^", file]).stdout;
-  const r = Bun.spawnSync(["jq", "-nRc", "--arg", "kind", "codex", "--arg", "main", file, "--arg", "open", "", "--arg", "title", "", "--argjson", "metas", "{}", "--argjson", "prices", "{}", JQ_PROG], { stdin: input });
-  expect(r.exitCode).toBe(0);
-  const s = JSON.parse(r.stdout.toString()).files[file];
+  const command = (cmd, code, out) => ({ type: "event_msg", payload: { type: "item_completed", item: { type: "CommandExecution", command: ["/bin/zsh", "-lc", cmd], exit_code: code, aggregated_output: out } } });
+  writeFileSync(file, jsonl({ type: "session_meta", payload: { id: "c" } }, event(20, 10, 1, 20), event(100, 80, 5, 30),
+    command("make", 2, "fail"), command("gh pr create -f", 0, "https://github.com/o/r/pull/3")));
+  const s = one("codex", file);
   expect(s.tok).toEqual({ input: 20, output: 5, cacheRead: 80, cacheWrite: 0, total: 105 });
   expect(s.ctx).toBe(32);
+  expect(s.window).toBe(100);
   expect(s.limits.primary.used_percent).toBe(30);
+  expect([s.toolErrors, s.errStreak, s.pr]).toEqual([1, 0, "https://github.com/o/r/pull/3"]);
 });

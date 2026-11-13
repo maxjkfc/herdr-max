@@ -8,13 +8,14 @@ if [ -z "$JQ" ]; then for c in /opt/homebrew/bin/jq /usr/local/bin/jq /usr/bin/j
 [ -z "$JQ" ] && { echo '{"error":"nojq"}'; exit 0; }
 `;
 
-// Claude Code and Codex logs carry tokens but no cost: price them with the per-million rates omp keeps
-// for its own cost math. {} when omp (or sqlite3) isn't on that machine: costs then show as unknown.
-export const PRICES = FIND_JQ + String.raw`
+// Model facts omp keeps for its own math: per-million rates (Claude Code and Codex logs carry tokens but no
+// cost) and context windows. Keyed by model id; Anthropic and OpenAI rows win over resellers' copies.
+// {} when omp (or sqlite3) isn't on that machine: costs then show as unknown and context as tokens only.
+export const MODELS = FIND_JQ + String.raw`
 db=$HOME/.omp/agent/models.db
 if [ -f "$db" ] && command -v sqlite3 >/dev/null 2>&1; then
-  sqlite3 "$db" "select models from model_cache where provider_id in ('anthropic','openai')" 2>/dev/null \
-    | "$JQ" -c -s '[.[][] | select(.cost) | {(.id): .cost}] | add // {}' 2>/dev/null
+  sqlite3 "$db" "select models from model_cache order by provider_id in ('anthropic','openai')" 2>/dev/null \
+    | "$JQ" -c -s '[.[][] | {(.id): {cost, window: .contextWindow}}] | add // {}' 2>/dev/null
 else echo '{}'; fi`;
 
 // Lines arrive as "<file>:<json>" (grep -H). jq reads them raw: the file being appended may end in half a
@@ -22,13 +23,25 @@ else echo '{}'; fi`;
 export const JQ_PROG = String.raw`
 def txt: if type == "string" then . elif type == "array" then (map(if type == "string" then . elif type == "object" then (.text // empty) else empty end) | join("\n")) else "" end;
 def clip($n): if length > $n then .[:$n] + "…" else . end;
-def rate($m; $prompt): ($prices[$m // ""] // null) as $p
+def rate($m; $prompt): ($models[$m // ""].cost // null) as $p
   | if $p == null then null elif $p.longContext != null and $prompt > ($p.longContext.inputThreshold // 1e18) then $p.longContext else $p end;
 # Per-million rates; a one-hour cache write costs twice the input rate.
 def bill($m; $in; $out; $cr; $cw; $cw1h): rate($m; $in + $cr + $cw + $cw1h) as $r
   | if $r == null then .unpriced = true
     else .cost += (($in * ($r.input // 0) + $out * ($r.output // 0) + $cr * ($r.cacheRead // 0) + $cw * ($r.cacheWrite // 0) + $cw1h * 2 * ($r.input // 0)) / 1000000) end;
 def toks($in; $out; $cr; $cw): .tok.input += $in | .tok.output += $out | .tok.cacheRead += $cr | .tok.cacheWrite += $cw | .tok.total += ($in + $out + $cr + $cw);
+
+# What tells you whether to step in: the agent's own task list, failing tools, and what it produced.
+def plan($items): ($items // []) | if type == "array" and length > 0 then
+  map(select(.status != "abandoned" and .status != "dropped")) as $l
+  | {total: ($l | length), done: ($l | map(select(.status == "completed")) | length),
+     current: ($l | map(select(.status == "in_progress")) | first | (.content // .activeForm // null))}
+  else null end;
+def toolres($err; $tool; $text): if $err
+  then .toolErrors += 1 | .errStreak += 1 | .toolError = {tool: $tool, text: ($text | tostring | clip(300))}
+  else .errStreak = 0 end;
+def touched($p): if ($p | type) == "string" and $p != "" and ($p | test("://") | not) then .touched[$p] = true else . end;
+def prurl($t): [($t // "") | tostring | match("https://github\\.com/[^\\s\"'<>)]+/pull/[0-9]+"; "g").string] | last;
 
 # omp writes its own usage and cost on every reply and side call (titles, auto-thinking).
 def use($u): if $u == null then . else
@@ -47,13 +60,26 @@ def omp($e):
         | .ctx = (($m.usage.input // 0) + ($m.usage.cacheRead // 0) + ($m.usage.cacheWrite // 0) + ($m.usage.output // 0))
         | .error = (if $m.errorMessage then ($m.errorMessage | tostring | clip(300)) else null end)
         | (($m.content | txt) as $t | if $t != "" then .reply = ($t | clip(1500)) else . end)
+        | reduce ($m.content // [] | if type == "array" then .[] else empty end | select(.type == "toolCall")) as $c (.;
+            ($c.arguments // {}) as $a
+            | if $c.name == "write" then touched($a.path)
+              elif $c.name == "edit" then touched($a.path)
+                | reduce (($a.input // "") | tostring | [match("(?m)^\\[([^\\]\\n#]+)#[0-9A-Za-z]{4}\\]"; "g").captures[0].string] | .[]) as $f (.; touched($f))
+              elif $c.name == "bash" and (($a.command // "") | tostring | test("gh pr create")) then .prPending = true
+              else . end)
       elif $m.role == "user" then .prompts += 1 | .prompt = (($m.content | txt) | clip(1500))
+      elif $m.role == "toolResult" then ($m.content | txt) as $t
+        | toolres($m.isError == true; $m.toolName; $t)
+        | (if .prPending and $m.toolName == "bash" then (prurl($t) as $u | if $u then .pr = $u else . end) | .prPending = false else . end)
+        | (if $m.toolName == "todo" and $m.details.phases then .plan = plan([$m.details.phases[]?.tasks[]?]) else . end)
       else . end
   elif $e.type == "model_usage" then use($e.usage) | .aux += ($e.usage.cost.total // 0)
   elif $e.type == "compaction" then .compactions += 1
     | .compaction = {at: $e.timestamp, short: $e.shortSummary, summary: (($e.summary // "") | clip(4000)), before: $e.tokensBefore, after: $e.tokensAfter}
   elif $e.type == "custom" and $e.customType == "tool_execution_start" then
     ($e.data // {}) as $d | .doing = {tool: $d.toolName, intent: $d.intent, at: ($d.startedAt // $e.timestamp)}
+  elif $e.type == "custom" and $e.customType == "todo_hud_state" then
+    .plan = plan([($e.data.fingerprint // "[]" | fromjson? // []) | .[]?.tasks[]?])
   elif $e.type == "custom" and $e.customType == "session_exit" then .exit = ($e.data // {})
   else . end;
 
@@ -63,7 +89,7 @@ def claude($e):
   | (if .started == null and $e.timestamp then .started = $e.timestamp else . end)
   | if $e.type == "assistant" and ($e.message.model // "") != "<synthetic>" then
       $e.message as $m | ($m.usage // {}) as $u
-      | .model = $m.model
+      | .model = $m.model | .error = null
       | (if .seen[$m.id // $e.uuid] then . else
           .seen[$m.id // $e.uuid] = true | .replies += 1
           | ($u.cache_creation.ephemeral_1h_input_tokens // 0) as $h
@@ -73,17 +99,24 @@ def claude($e):
         end)
       | reduce ($m.content // [] | if type == "array" then .[] else empty end) as $c (.;
           if $c.type == "text" and ($c.text // "") != "" then .reply = ($c.text | clip(1500))
-          elif $c.type == "tool_use" then .doing = {tool: $c.name, at: $e.timestamp,
-            intent: (($c.input // {}) | (.description // .file_path // .pattern // .command // .prompt // .url // "") | tostring | clip(160))}
+          elif $c.type == "tool_use" then ($c.input // {}) as $in
+            | .doing = {tool: $c.name, at: $e.timestamp,
+                intent: ($in | (.description // .file_path // .pattern // .command // .prompt // .url // "") | tostring | clip(160))}
+            | (if ($c.name | test("^(Edit|Write|MultiEdit|NotebookEdit)$")) then touched($in.file_path // $in.notebook_path) else . end)
+            | (if ($c.name | test("(^|__)(TodoWrite|update_plan)$")) then .plan = plan($in.todos // $in.items) else . end)
           else . end)
     elif $e.type == "assistant" and $e.isApiErrorMessage then .error = (($e.message.content | txt) | clip(300))
     elif $e.type == "user" and $e.isCompactSummary then .compaction.summary = (($e.message.content | txt) | clip(4000))
+    elif $e.type == "user" and ($e.message.content | type) == "array" and any($e.message.content[]; .type? == "tool_result") then
+      reduce ($e.message.content[] | select(.type? == "tool_result")) as $r (.; toolres($r.is_error == true; null; $r.content | txt))
     elif $e.type == "user" and $e.parentUuid == null and .task == null then .task = (($e.message.content | txt) | clip(1500))
     elif $e.type == "custom-title" then .title = $e.customTitle | .titled = true
     elif $e.type == "agent-name" and (.titled | not) then .title = $e.agentName
     elif $e.type == "ai-title" and (.titled | not) then .title = $e.aiTitle
     elif $e.type == "last-prompt" and ($e.lastPrompt // "") != "" then .prompt = ($e.lastPrompt | clip(1500))
     elif $e.type == "cost-state" then .selfCost = $e.totalCostUSD | .selfCostAt = .last
+      | .lines = {added: ($e.totalLinesAdded // 0), removed: ($e.totalLinesRemoved // 0)}
+    elif $e.type == "pr-link" and $e.prUrl then .pr = $e.prUrl
     elif $e.type == "system" and $e.subtype == "turn_duration" then .prompts += 1
     elif $e.type == "system" and $e.subtype == "compact_boundary" then .compactions += 1
       | .compaction = {at: $e.timestamp, short: ($e.compactMetadata.trigger // null), summary: .compaction.summary,
@@ -116,7 +149,10 @@ def codex($e): $e.payload as $p
     elif $e.type == "event_msg" and $p.type == "item_completed" then ($p.item // {}) as $i
       | if $i.type == "UserMessage" then (($i.content | txt) as $t | .prompt = ($t | clip(1500)) | (if .task == null then .task = ($t | clip(1500)) else . end))
         elif $i.type == "AgentMessage" then (($i.content | txt) as $t | if $t != "" then .reply = ($t | clip(1500)) else . end)
-        elif $i.type == "CommandExecution" then .doing = {tool: "shell", intent: ($i.command | tostring | clip(160)), at: $e.timestamp}
+        elif $i.type == "CommandExecution" then ($i.aggregated_output // "" | tostring) as $out
+          | .doing = {tool: "shell", intent: ($i.command | tostring | clip(160)), at: $e.timestamp}
+          | toolres(($i.exit_code // 0) != 0; "shell"; $out)
+          | (if ($i.command | tostring | test("gh pr create")) then (prurl($out) as $u | if $u then .pr = $u else . end) else . end)
         else . end
     elif $e.type == "response_item" and ($p.type == "function_call" or $p.type == "custom_tool_call") then
       .doing = {tool: $p.name, intent: (($p.arguments // $p.input // "") | tostring | clip(160)), at: $e.timestamp}
@@ -127,13 +163,15 @@ def step($e): (if $e.timestamp then .last = $e.timestamp else . end)
 
 reduce (inputs | index(":{") as $i | select($i != null) | {f: .[:$i], e: (.[$i + 1:] | fromjson?)} | select(.e | type == "object")) as $x
   ({}; if $kind == "claude" and $x.f == $main and $x.e.isSidechain == true then . else .[$x.f] |= step($x.e) end)
-| map_values(del(.seen, .titled))
+| map_values(del(.seen, .titled, .prPending)
+    | .touched = ((.touched // {}) | keys)
+    | (if .window == null then .window = $models[(.model // "") | split("/") | last | sub(":.*$"; "")].window else . end))
 | (if $kind == "claude" then with_entries(.value += (($metas[.key] // null) as $m
     | if $m then {name: $m.description, agent: $m.agentType, finished: $m.finished} else {} end)) else . end)
 | (if $title != "" then .[$main].title = $title else . end)
 | {kind: $kind, main: $main, estimated: ($kind != "omp"), open: ($open | split("\n") | map(select(. != ""))), files: .}`;
 
-// sh -c PROBE sh <kind> <pid> <finished paths, one per line> <JQ_PROG> <prices JSON>
+// sh -c PROBE sh <kind> <pid> <finished paths, one per line> <JQ_PROG> <MODELS JSON>
 // The agent's process and its descendants (Codex writes from a child of its launcher) give the files:
 // - omp: the session files it holds open (lsof -n -P: no DNS, fast); the shallowest is the main one, the
 //   others live sub-agents; finished sub-agents come from the session's folder.
@@ -142,8 +180,8 @@ reduce (inputs | index(":{") as $i | select($i != null) | {f: .[:$i], e: (.[$i +
 // - Codex: the open rollout whose thread is its own root; sub-agents are later rollouts naming it as their session.
 // Already-summarized finished files are skipped: they never change again.
 export const PROBE = FIND_JQ + String.raw`
-kind=$1; pid=$2; skip=$3; prog=$4; prices=$5
-[ -n "$prices" ] || prices='{}'
+kind=$1; pid=$2; skip=$3; prog=$4; models=$5
+[ -n "$models" ] || models='{}'
 pids=$(ps -A -o pid= -o ppid= | awk -v root="$pid" '{ parent[$1] = $2 } END { seen[root] = 1; grew = 1; while (grew) { grew = 0; for (p in parent) if (!(p in seen) && (parent[p] in seen)) { seen[p] = 1; grew = 1 } } sep = ""; for (p in seen) { printf "%s%s", sep, p; sep = "," } }')
 open=$(lsof -n -P -p "$pids" -Fn 2>/dev/null | sed -n 's/^n//p' | grep -E '\.jsonl$' | sort -u)
 title=""; metas='{}'; main=""
@@ -169,7 +207,7 @@ claude)
       | xargs -0 "$JQ" -c -n '[inputs | {(input_filename | sub("\\.meta\\.json$"; ".jsonl")): .}] | add // {}' 2>/dev/null)
     [ -n "$metas" ] || metas='{}'
   fi
-  filter='"type":"(assistant|cost-state|ai-title|custom-title|agent-name|last-prompt)"|"subtype":"(compact_boundary|turn_duration)"|"isCompactSummary":true|"parentUuid":null' ;;
+  filter='"type":"(assistant|cost-state|ai-title|custom-title|agent-name|last-prompt|pr-link|tool_result)"|"subtype":"(compact_boundary|turn_duration)"|"isCompactSummary":true|"parentUuid":null' ;;
 codex)
   base=$CODEX_HOME; [ -n "$base" ] || base=$HOME/.codex
   open=$(printf '%s\n' "$open" | grep -E '/rollout-[^/]*\.jsonl$')
@@ -196,7 +234,7 @@ esac
 [ -n "$skip" ] && subs=$(printf '%s\n' "$subs" | grep -vxF -e "$skip")
 printf '%s\n' "$main" "$subs" | grep -v '^$' | tr '\n' '\0' | xargs -0 grep -H -E -e "$filter" 2>/dev/null \
   | "$JQ" -n -R -c --arg kind "$kind" --arg main "$main" --arg open "$open" --arg title "$title" \
-      --argjson metas "$metas" --argjson prices "$prices" "$prog"`;
+      --argjson metas "$metas" --argjson models "$models" "$prog"`;
 
 const base = (p) => p.split("/").pop().replace(/\.jsonl$/, "");
 
