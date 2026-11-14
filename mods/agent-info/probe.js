@@ -18,9 +18,10 @@ if [ -f "$db" ] && command -v sqlite3 >/dev/null 2>&1; then
     | "$JQ" -c -s '[.[][] | {(.id): {cost, window: .contextWindow}}] | add // {}' 2>/dev/null
 else echo '{}'; fi`;
 
-// Lines arrive as "<file>:<json>" (grep -H). jq reads them raw: the file being appended may end in half a
-// line, and one bad line must not drop the rest. Each file's state, keyed by path, in one shape for all kinds.
-export const JQ_PROG = String.raw`
+// One session file's new lines folded into the state saved from its last read (--slurpfile prev: [] for none,
+// else [{off, f, s}]); prints the next {off, f, s}. Lines are raw: one bad line must not drop the rest.
+// The state has one shape for all kinds.
+export const JQ_STEP = String.raw`
 def txt: if type == "string" then . elif type == "array" then (map(if type == "string" then . elif type == "object" then (.text // empty) else empty end) | join("\n")) else "" end;
 def clip($n): if length > $n then .[:$n] + "…" else . end;
 def rate($m; $prompt): ($models[$m // ""].cost // null) as $p
@@ -185,80 +186,149 @@ def codex($e): $e.payload as $p
 def step($e): (if $e.timestamp then .last = $e.timestamp else . end)
   | if $kind == "claude" then claude($e) elif $kind == "codex" then codex($e) else omp($e) end;
 
-reduce (inputs | index(":{") as $i | select($i != null) | {f: .[:$i], e: (.[$i + 1:] | fromjson?)} | select(.e | type == "object")) as $x
-  ({}; if $kind == "claude" and $x.f == $main and $x.e.isSidechain == true then . else .[$x.f] |= step($x.e) end)
-| map_values(del(.seen, .titled, .prPending)
-    | .touched = ((.touched // {}) | keys)
-    | (if .window == null then .window = $models[(.model // "") | split("/") | last | sub(":.*$"; "")].window else . end))
+reduce (inputs | fromjson? | select(type == "object")) as $e ($prev[0].s // {};
+  if $kind == "claude" and $isMain and $e.isSidechain == true then . else step($e) end)
+# A Claude reply's repeated blocks sit together: its latest ids are enough to count each reply once.
+| (if .seen then .seen |= (to_entries[-200:] | from_entries) else . end)
+| {off: $off, f: $f, s: .}`;
+
+// A saved state as shown: bookkeeping dropped, the context window from omp's table when the log has none.
+const FIN = String.raw`
+def fin: del(.seen, .titled, .prPending)
+  | .touched = ((.touched // {}) | keys)
+  | (if .window == null then .window = $models[(.model // "") | split("/") | last | sub(":.*$"; "")].window else . end);
+`;
+
+// The saved states of one agent's files → what PROBE prints.
+export const JQ_FINAL = FIN + String.raw`
+reduce inputs as $x ({}; .[$x.f] = ($x.s | fin))
 | (if $kind == "claude" then with_entries(.value += (($metas[.key] // null) as $m
     | if $m then {name: $m.description, agent: $m.agentType, finished: $m.finished} else {} end)) else . end)
 | (if $title != "" then .[$main].title = $title else . end)
 | {kind: $kind, main: $main, estimated: ($kind != "omp"), open: ($open | split("\n") | map(select(. != ""))), files: .}`;
 
-// sh -c PROBE sh <kind> <pid> <finished paths, one per line> <JQ_PROG> <MODELS JSON>
+// {a: address, x: saved state} or {a, fail} per agent → what SUMMARY prints: the few fields a list row shows.
+export const JQ_BRIEF = FIN + String.raw`
+inputs | {a} + (if .fail then {fail} else (.x.s | fin
+  | {last, ctx, window, error, errStreak, toolError, pr, cost, unpriced, plan: (.plan | if . then {total, done, current} else null end)}) end)`;
+
+// locate <kind> <pid> [subs]: sets main (the session file) and filter (the lines worth reading); with "subs",
+// also subs, open, title and metas. Returns 1 for an unsupported kind. Needs $ptab (ps -A -o pid= -o ppid=).
 // The agent's process and its descendants (Codex writes from a child of its launcher) give the files:
 // - omp: the session files it holds open (lsof -n -P: no DNS, fast); the shallowest is the main one, the
 //   others live sub-agents; finished sub-agents come from the session's folder.
 // - Claude Code: ~/.claude/sessions/<pid>.json names the session; sub-agents sit in <session>/subagents
 //   with a .meta.json each (type, description, finished).
 // - Codex: the open rollout whose thread is its own root; sub-agents are later rollouts naming it as their session.
-// Already-summarized finished files are skipped: they never change again.
-export const PROBE = FIND_JQ + String.raw`
-kind=$1; pid=$2; skip=$3; prog=$4; models=$5
-[ -n "$models" ] || models='{}'
-pids=$(ps -A -o pid= -o ppid= | awk -v root="$pid" '{ parent[$1] = $2 } END { seen[root] = 1; grew = 1; while (grew) { grew = 0; for (p in parent) if (!(p in seen) && (parent[p] in seen)) { seen[p] = 1; grew = 1 } } sep = ""; for (p in seen) { printf "%s%s", sep, p; sep = "," } }')
-open=$(lsof -n -P -p "$pids" -Fn 2>/dev/null | sed -n 's/^n//p' | grep -E '\.jsonl$' | sort -u)
-title=""; metas='{}'; main=""
-case $kind in
-omp)
-  open=$(printf '%s\n' "$open" | grep -E '/sessions/.+\.jsonl$')
-  main=$(printf '%s\n' "$open" | grep -v '^$' | awk -F/ '{ print NF "\t" $0 }' | sort -n | head -n 1 | cut -f 2-)
-  [ -n "$main" ] && subs=$(find "$(printf '%s' "$main" | sed 's/\.jsonl$//')" -type f -name '*.jsonl' 2>/dev/null)
-  filter='^' ;;
-claude)
-  base=$CLAUDE_CONFIG_DIR; [ -n "$base" ] || base=$HOME/.claude
-  open=""
-  for p in $(printf '%s' "$pids" | tr ',' ' '); do
-    [ -f "$base/sessions/$p.json" ] || continue
-    sid=$("$JQ" -r '.sessionId // empty' "$base/sessions/$p.json" 2>/dev/null)
-    [ -n "$sid" ] && main=$(find "$base/projects" -maxdepth 2 -name "$sid.jsonl" 2>/dev/null | head -n 1)
-    [ -n "$main" ] && break
-  done
-  if [ -n "$main" ]; then
-    dir=$(printf '%s' "$main" | sed 's/\.jsonl$//')/subagents
-    subs=$(find "$dir" -maxdepth 1 -type f -name '*.jsonl' 2>/dev/null)
-    metas=$(find "$dir" -maxdepth 1 -type f -name '*.meta.json' 2>/dev/null | tr '\n' '\0' \
-      | xargs -0 "$JQ" -c -n '[inputs | {(input_filename | sub("\\.meta\\.json$"; ".jsonl")): .}] | add // {}' 2>/dev/null)
-    [ -n "$metas" ] || metas='{}'
-  fi
-  filter='"type":"(assistant|cost-state|ai-title|custom-title|agent-name|last-prompt|pr-link|tool_result)"|"subtype":"(compact_boundary|turn_duration)"|"isCompactSummary":true|"parentUuid":null' ;;
-codex)
-  base=$CODEX_HOME; [ -n "$base" ] || base=$HOME/.codex
-  open=$(printf '%s\n' "$open" | grep -E '/rollout-[^/]*\.jsonl$')
-  first=""
-  while IFS= read -r f; do
-    [ -n "$f" ] || continue
-    [ -n "$first" ] || first=$f
-    [ "$(head -n 1 "$f" | "$JQ" -r '.payload | (.session_id == null or .id == .session_id)' 2>/dev/null)" = true ] && main=$f && break
-  done <<EOF
+const LOCATE = String.raw`
+locate() {
+  main=""; subs=""; open=""; title=""; metas='{}'
+  pids=$(printf '%s\n' "$ptab" | awk -v root="$2" '{ parent[$1] = $2 } END { seen[root] = 1; grew = 1; while (grew) { grew = 0; for (p in parent) if (!(p in seen) && (parent[p] in seen)) { seen[p] = 1; grew = 1 } } sep = ""; for (p in seen) { printf "%s%s", sep, p; sep = "," } }')
+  case $1 in
+  omp)
+    open=$(lsof -n -P -p "$pids" -Fn 2>/dev/null | sed -n 's/^n//p' | grep -E '/sessions/.+\.jsonl$' | sort -u)
+    main=$(printf '%s\n' "$open" | grep -v '^$' | awk -F/ '{ print NF "\t" $0 }' | sort -n | head -n 1 | cut -f 2-)
+    [ -n "$3" ] && [ -n "$main" ] && subs=$(find "$(printf '%s' "$main" | sed 's/\.jsonl$//')" -type f -name '*.jsonl' 2>/dev/null)
+    filter='^' ;;
+  claude)
+    base=$CLAUDE_CONFIG_DIR; [ -n "$base" ] || base=$HOME/.claude
+    for p in $(printf '%s' "$pids" | tr ',' ' '); do
+      [ -f "$base/sessions/$p.json" ] || continue
+      sid=$("$JQ" -r '.sessionId // empty' "$base/sessions/$p.json" 2>/dev/null)
+      [ -n "$sid" ] && main=$(find "$base/projects" -maxdepth 2 -name "$sid.jsonl" 2>/dev/null | head -n 1)
+      [ -n "$main" ] && break
+    done
+    if [ -n "$3" ] && [ -n "$main" ]; then
+      dir=$(printf '%s' "$main" | sed 's/\.jsonl$//')/subagents
+      subs=$(find "$dir" -maxdepth 1 -type f -name '*.jsonl' 2>/dev/null)
+      metas=$(find "$dir" -maxdepth 1 -type f -name '*.meta.json' 2>/dev/null | tr '\n' '\0' \
+        | xargs -0 "$JQ" -c -n '[inputs | {(input_filename | sub("\\.meta\\.json$"; ".jsonl")): .}] | add // {}' 2>/dev/null)
+      [ -n "$metas" ] || metas='{}'
+    fi
+    filter='"type":"(assistant|cost-state|ai-title|custom-title|agent-name|last-prompt|pr-link|tool_result)"|"subtype":"(compact_boundary|turn_duration)"|"isCompactSummary":true|"parentUuid":null' ;;
+  codex)
+    base=$CODEX_HOME; [ -n "$base" ] || base=$HOME/.codex
+    open=$(lsof -n -P -p "$pids" -Fn 2>/dev/null | sed -n 's/^n//p' | grep -E '/rollout-[^/]*\.jsonl$' | sort -u)
+    first=""
+    while IFS= read -r r; do
+      [ -n "$r" ] || continue
+      [ -n "$first" ] || first=$r
+      [ "$(head -n 1 "$r" | "$JQ" -r '.payload | (.session_id == null or .id == .session_id)' 2>/dev/null)" = true ] && main=$r && break
+    done <<EOF
 $open
 EOF
-  [ -n "$main" ] || main=$first
-  if [ -n "$main" ]; then
-    id=$(head -n 1 "$main" | "$JQ" -r '.payload.id // empty')
-    name=$(basename "$main")
-    subs=$(find "$base/sessions" -type f -name 'rollout-*.jsonl' 2>/dev/null | awk -F/ -v n="$name" '$NF > n' \
-      | while IFS= read -r f; do head -n 1 "$f" | grep -qF "\"session_id\":\"$id\"" && printf '%s\n' "$f"; done)
-    title=$(grep -F "\"id\":\"$id\"" "$base/session_index.jsonl" 2>/dev/null | tail -n 1 | "$JQ" -r '.thread_name // empty' 2>/dev/null)
+    [ -n "$main" ] || main=$first
+    if [ -n "$3" ] && [ -n "$main" ]; then
+      id=$(head -n 1 "$main" | "$JQ" -r '.payload.id // empty')
+      name=$(basename "$main")
+      subs=$(find "$base/sessions" -type f -name 'rollout-*.jsonl' 2>/dev/null | awk -F/ -v n="$name" '$NF > n' \
+        | while IFS= read -r r; do head -n 1 "$r" | grep -qF "\"session_id\":\"$id\"" && printf '%s\n' "$r"; done)
+      title=$(grep -F "\"id\":\"$id\"" "$base/session_index.jsonl" 2>/dev/null | tail -n 1 | "$JQ" -r '.thread_name // empty' 2>/dev/null)
+    fi
+    filter='"type":"(session_meta|turn_context|token_count|token_usage_record|task_started|task_complete|item_completed|function_call|custom_tool_call|compacted)"' ;;
+  *) return 1 ;;
+  esac
+}`;
+
+// fold <file> <true for the main session>: prints the path of the file's saved state, first brought up to date
+// by reading only what was added since the last read. A line still being written (no newline yet) waits for
+// the next read. A file that shrank is read again from the start. Needs $cache, $kind, $filter, $step, $models.
+// The state lives on the agent's machine, keyed by path, in a folder named after the program and the rates:
+// a change to either starts over.
+const FOLD = String.raw`
+cache=$TMPDIR; [ -n "$cache" ] || cache=/tmp
+cache=$cache/herdr-agent-info-$(printf '%s%s' "$step" "$models" | cksum | cut -d ' ' -f 1)
+(umask 077; mkdir -p "$cache")
+fold() {
+  _st=$cache/$(printf '%s' "$1" | cksum | cut -d ' ' -f 1).json
+  _size=$(wc -c < "$1" 2>/dev/null | tr -d ' ')
+  [ -n "$_size" ] || return 0
+  _off=0; _prev=/dev/null
+  if [ -s "$_st" ]; then _off=$(sed -n '1s/^{"off":\([0-9]*\),.*/\1/p' "$_st"); _prev=$_st; fi
+  if [ -z "$_off" ] || [ "$_off" -gt "$_size" ]; then _off=0; _prev=/dev/null; rm -f "$_st"; fi
+  _end=$_size
+  if [ "$_size" -gt "$_off" ] && [ "$(tail -c +"$_size" "$1" | head -c 1 | wc -l | tr -d ' ')" != 1 ]; then
+    _end=$((_size - $(tail -c +$((_off + 1)) "$1" | head -c $((_size - _off)) | LC_ALL=C awk 'END { print length($0) }')))
   fi
-  filter='"type":"(session_meta|turn_context|token_count|token_usage_record|task_started|task_complete|item_completed|function_call|custom_tool_call|compacted)"' ;;
-*) echo '{"error":"unsupported"}'; exit 0 ;;
-esac
+  if [ "$_end" -gt "$_off" ]; then
+    tail -c +$((_off + 1)) "$1" | head -c $((_end - _off)) | grep -E -e "$filter" \
+      | "$JQ" -n -R -c --arg kind "$kind" --argjson isMain "$2" --arg f "$1" --argjson off "$_end" \
+          --argjson models "$models" --slurpfile prev "$_prev" "$step" > "$_st.$$" && mv "$_st.$$" "$_st"
+  fi
+  [ -s "$_st" ] && printf '%s\n' "$_st"
+}`;
+
+// sh -c PROBE sh <kind> <pid> <finished paths, one per line> <JQ_STEP> <JQ_FINAL> <MODELS JSON>
+// One agent's main session and sub-agents. Already-summarized finished files are skipped: they never change again.
+export const PROBE = FIND_JQ + String.raw`
+kind=$1; pid=$2; skip=$3; step=$4; final=$5; models=$6
+[ -n "$models" ] || models='{}'
+` + FOLD + LOCATE + String.raw`
+ptab=$(ps -A -o pid= -o ppid=)
+locate "$kind" "$pid" subs || { echo '{"error":"unsupported"}'; exit 0; }
 [ -z "$main" ] && { echo '{"error":"nosession"}'; exit 0; }
 [ -n "$skip" ] && subs=$(printf '%s\n' "$subs" | grep -vxF -e "$skip")
-printf '%s\n' "$main" "$subs" | grep -v '^$' | tr '\n' '\0' | xargs -0 grep -H -E -e "$filter" 2>/dev/null \
-  | "$JQ" -n -R -c --arg kind "$kind" --arg main "$main" --arg open "$open" --arg title "$title" \
-      --argjson metas "$metas" --argjson models "$models" "$prog"`;
+printf '%s\n' "$main" "$subs" | grep -v '^$' | while IFS= read -r x; do
+  if [ "$x" = "$main" ]; then fold "$x" true; else fold "$x" false; fi
+done | while IFS= read -r st; do cat "$st"; done \
+  | "$JQ" -n -c --arg kind "$kind" --arg main "$main" --arg open "$open" --arg title "$title" \
+      --argjson metas "$metas" --argjson models "$models" "$final"`;
+
+// sh -c SUMMARY sh <"address kind pid" per line> <JQ_STEP> <JQ_BRIEF> <MODELS JSON>
+// Every listed agent on one machine, main sessions only, in one run: one JSON line per agent.
+export const SUMMARY = FIND_JQ + String.raw`
+list=$1; step=$2; brief=$3; models=$4
+[ -n "$models" ] || models='{}'
+` + FOLD + LOCATE + String.raw`
+ptab=$(ps -A -o pid= -o ppid=)
+printf '%s\n' "$list" | while read -r addr kind pid; do
+  [ -n "$addr" ] || continue
+  if ! locate "$kind" "$pid"; then printf '{"a":"%s","fail":"unsupported"}\n' "$addr"; continue; fi
+  [ -z "$main" ] && { printf '{"a":"%s","fail":"nosession"}\n' "$addr"; continue; }
+  st=$(fold "$main" true)
+  if [ -n "$st" ]; then printf '{"a":"%s","x":' "$addr"; cat "$st"; printf '}\n'
+  else printf '{"a":"%s","fail":"empty"}\n' "$addr"; fi
+done | "$JQ" -c -n --argjson models "$models" "$brief"`;
 
 const base = (p) => p.split("/").pop().replace(/\.jsonl$/, "");
 
@@ -352,4 +422,47 @@ export function ago(iso, now = Date.now()) {
   if (m < 60) return `${m}m`;
   const h = Math.floor(m / 60);
   return h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`;
+}
+
+export const STALE_MS = 10 * 60000; // "working" with nothing logged for this long: likely stuck
+export const CTX_WARN = 85; // context % worth a warning
+export const STREAK_WARN = 3; // tool failures in a row worth a warning
+
+export const firstLine = (s) => (s ?? "").split("\n").find((l) => l.trim()) ?? "";
+export const ctxPct = (m) => (m?.window && m.ctx != null ? Math.round((m.ctx / m.window) * 100) : null);
+
+// The program in an agent pane as the probe reads it; null for one it can't.
+export function kindOf(a) {
+  const names = [a?.app, a?.program?.key];
+  if (names.includes("omp")) return "omp";
+  if (names.includes("claude") || names.includes("claude-code")) return "claude";
+  if (names.includes("codex")) return "codex";
+  return null;
+}
+
+// Reasons to look now, from a session's state and the agent's status. Each names what the log shows,
+// not a guess at the cause: `short` fits a list row, `head` and `detail` explain.
+export function alertsOf(m, status, now = Date.now()) {
+  const list = [];
+  if (m.error) list.push({ key: "api", short: "API 錯誤", head: "API 錯誤", detail: m.error });
+  if ((m.errStreak ?? 0) >= STREAK_WARN) {
+    const tool = m.toolError?.tool ? `（${m.toolError.tool}）` : "";
+    list.push({ key: "tools", short: `失敗 ×${m.errStreak}`, head: `工具連續失敗 ${m.errStreak} 次${tool}`, detail: firstLine(m.toolError?.text) });
+  }
+  if (status === "working" && m.last && now - Date.parse(m.last) > STALE_MS)
+    list.push({ key: "stale", short: `${ago(m.last, now)} 沒動靜`, head: `顯示工作中，但已 ${ago(m.last, now)} 沒有新紀錄`, detail: "可能卡住，或在跑很久的指令" });
+  const p = ctxPct(m);
+  if (p >= CTX_WARN) list.push({ key: "ctx", short: `上下文 ${p}%`, head: `上下文已用 ${p}%`, detail: "接近上限，之後會壓縮或需要開新 session" });
+  return list;
+}
+
+// omp's model rates and context windows on a machine (null: this one), read at most hourly.
+// `cache`: a Map the caller keeps; `run`: herdr's exec.
+export async function modelsFor(cache, run, on) {
+  const key = on ?? "";
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.at < 3600000) return hit.json;
+  const json = (await run("sh", ["-c", MODELS], { on, timeout: 20000 })).stdout.trim() || "{}";
+  cache.set(key, { json, at: Date.now() });
+  return json;
 }

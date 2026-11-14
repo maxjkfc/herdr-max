@@ -23,6 +23,7 @@ A customized [Herdr](https://herdr.dev) desktop layout (`main-custom`) and mod s
 ### 1b. `agents-plus` — Agents Panel with Header Counts (`Ctrl+A` → `I`)
 - Cloned from Herdr's `agents` (the sections `Needs you` / `Done` / `Working` / `Idle` and priority ordering are Herdr's). It adds:
   - **Counts in the header**: a red `2` chip (needs you) and a `● 1` (done) next to the title, with a tooltip each, so a waiting agent shows even when its section is folded. The bottom bar (`workspace-status-plus`) also counts `done` now, not only blocked.
+  - **Session tags under each row** (omp, Claude Code, Codex): a second line of small tags with the machine, task progress (`7/7`), the PR it opened (`#52`, click opens it), context once it passes `60%`, and the first warning (same rules as the `agent-info` status block; hover for all). Only warnings and context at `85%`+ are colored. Idle agents stay one line unless a warning applies. The focused agent's row is framed. Numbers refresh every `15s` while the window is active and the list is wide enough to show them, one run per machine.
 - **`Ctrl+A` → `I` (`Shift+I`)** jumps to the agent that needs you most: blocked before done, the most recent first. Herdr turns `done` into `idle` once you look at it, so a seen agent is not picked again. Nothing happens when no agent is waiting.
 
 ### 2. `worktree-plus` — Multi-Repo & GitHub Issue Worktree Manager (`Ctrl+A` → `G`)
@@ -86,6 +87,7 @@ A customized [Herdr](https://herdr.dev) desktop layout (`main-custom`) and mod s
 - **Last round**: your last instruction and the full reply. **Details** (folded): Session ID (copy button), model, start time, prompt / reply / tool-failure counts, token breakdown (cache reads count on every turn, so cumulative usage is not the context size), Codex rate limits, and the compaction summary.
 - **Subagents** (folded to a one-line tally; click to list): subagent tasks, usage and recorded status when available. Claude uses subagent metadata, Codex uses rollout thread relationships, and omp uses its session tree. Missing Claude metadata means status is unknown.
 - Session discovery runs on the agent's machine. omp uses open session files, Claude Code uses its PID-indexed session metadata, and Codex uses open rollout files including descendant processes. Requires `jq` and `lsof`; cost estimates also need `sqlite3` and omp's model cache. Only polls while the Agent panel is visible and the window active.
+- **Incremental reads**: each session file's summary is saved on its own machine (`$TMPDIR/herdr-agent-info-*`, private to the user) with the byte offset read so far, so a poll reads only lines added since the last one; a line still being written waits for the next poll, and a file that shrank is read again from the start. The panel and the `agents-plus` row tags share the saved summaries (`probe.js` is mirrored into `agents-plus`).
 
 ---
 
@@ -182,7 +184,7 @@ In the PR dialog the changed files are a column on the left of the diff (virtual
 | Command | What it checks |
 |---|---|
 | `bun test tests/` | Pure logic: remote-URL platform detection (`platform.js`), unified-diff parsing (`diff.js`), the changed-files folder tree (`filetree.js`), the syntax tokenizer (`highlight.js`), agent briefs (`brief.js`), review drafts / messages / agent matching (`review/drafts.js`), worktree list parsing (`review/worktrees.js`), git checkout facts and worktree nesting (`spaces-plus/repo.js`, `spaces-plus/nest.js`), agent counts (`agents-plus/logic.js`), the most urgent agent (`tmux-prefix/urgent.js`), omp session summaries and the `lsof` probe (`agent-info/probe.js`, macOS: needs `jq` and `lsof`). |
-| `scripts/check-mirrors.sh` | Files that must be identical copies because a mod cannot import another mod's files (`platform.js`, `diff.js`, `filetree.js`, `highlight.js`, `diffview.js`, `startagent.js`). Add pairs to `PAIRS` in the script. |
+| `scripts/check-mirrors.sh` | Files that must be identical copies because a mod cannot import another mod's files (`platform.js`, `diff.js`, `filetree.js`, `highlight.js`, `diffview.js`, `startagent.js`, `probe.js`). Add pairs to `PAIRS` in the script. |
 | `scripts/diff-live.sh [-d]` | What the repo ships vs what runs in `~/.config/herdr-app` (`HERDR_APP_HOME`): lists differing or missing files, `-d` prints the diffs. Run it before opening a PR so live fixes don't stay out of the repo. |
 
 The `worktree-plus` auto-clean leaves a worktree alone for 6 hours unless it has been open in a Herdr space at least once, so a worktree made with plain `git worktree add` is not removed the moment it is created. Mark a worktree permanent with `wt-helper.py keep-wt <path>`.

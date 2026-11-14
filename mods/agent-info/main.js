@@ -4,12 +4,9 @@
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { agents, exec, focused, hc, layout, theme, window } from "herdr";
-import { PROBE, MODELS, JQ_PROG, shape, fmtTokens, fmtCost, ago } from "./probe.js";
+import { PROBE, JQ_STEP, JQ_FINAL, CTX_WARN, shape, fmtTokens, fmtCost, ago, alertsOf, ctxPct as pct, firstLine, kindOf, modelsFor } from "./probe.js";
 
 const POLL_MS = 4000;
-const STALE_MS = 10 * 60000; // "working" with nothing logged for this long: likely stuck
-const CTX_WARN = 85; // context % worth a warning
-const STREAK_WARN = 3; // tool failures in a row worth a warning
 const MONO = "JetBrains Mono";
 const ICON = "mods/agent-info/icons";
 
@@ -29,21 +26,12 @@ function visible() {
   return Boolean(panel && !panel.hidden && body?.active === "agent");
 }
 
-const kindOf = (a) => {
-  const names = [a?.app, a?.program?.key];
-  if (names.includes("omp")) return "omp";
-  if (names.includes("claude") || names.includes("claude-code")) return "claude";
-  if (names.includes("codex")) return "codex";
-  return null;
-};
 const cost = (value, unpriced, estimated) => unpriced || value == null ? "—" : `${estimated ? "≈" : ""}${fmtCost(value)}`;
 const machineOf = (address) => (address?.includes("/") ? address.split("/")[0] : null);
 const clip = (s, n) => (s && s.length > n ? `${s.slice(0, n)}…` : s ?? "");
-const pct = (m) => (m.window && m.ctx != null ? Math.round((m.ctx / m.window) * 100) : null);
 const home = (p) => p.replace(/^\/Users\/[^/]+|^\/home\/[^/]+/, "~");
 // A changed file, relative to the session's folder when inside it.
 const shortPath = (p, cwd) => (cwd && p.startsWith(`${cwd}/`) ? p.slice(cwd.length + 1) : home(p));
-const firstLine = (s) => (s ?? "").split("\n").find((l) => l.trim()) ?? "";
 const clean = (s) => (s ?? "").replace(/^[^\p{L}\p{N}]+/u, "").trim();
 // Markdown emphasis, code ticks and heading marks dropped: the panel shows plain text.
 const unmark = (s) => (s ?? "").replace(/\*\*|__|`/g, "").replace(/^\s*#+\s+/gm, "").trim();
@@ -117,9 +105,9 @@ export default class AgentInfo extends View {
         const fg = got.code === 0 ? JSON.parse(got.stdout)?.foreground : null;
         if (!fg?.pid) { if (this.address === address) { this.error = "noprocess"; this.data = null; } return; }
         const on = machineOf(address);
-        const models = await this.modelsOn(on);
+        const models = await modelsFor(this.models, exec, on);
         const skip = Object.keys(this.kept).join("\n");
-        const r = await exec("sh", ["-c", PROBE, "sh", kind, String(fg.pid), skip, JQ_PROG, models], { on, timeout: 20000 });
+        const r = await exec("sh", ["-c", PROBE, "sh", kind, String(fg.pid), skip, JQ_STEP, JQ_FINAL, models], { on, timeout: 20000 });
         if (this.address !== address) return;
         const raw = JSON.parse(r.stdout || "{}");
         if (raw.error || !raw.main) { this.error = raw.error ?? (r.stderr.trim() || `exit ${r.code}`); this.data = null; return; }
@@ -135,15 +123,6 @@ export default class AgentInfo extends View {
         cx.notify();
       }
     });
-  }
-
-  async modelsOn(on) {
-    const key = on ?? "";
-    const hit = this.models.get(key);
-    if (hit && Date.now() - hit.at < 3600000) return hit.json;
-    const json = (await exec("sh", ["-c", MODELS], { on, timeout: 20000 })).stdout.trim() || "{}";
-    this.models.set(key, { json, at: Date.now() });
-    return json;
   }
 
   card(t, title, right, ...rows) {
@@ -217,18 +196,6 @@ export default class AgentInfo extends View {
           : svg(`${ICON}/refresh.svg`).size(13).text_color(t.muted)));
   }
 
-  // Reasons to look now: each names what the log shows, not a guess at the cause.
-  alerts(m, a) {
-    const list = [];
-    if (m.error) list.push(["API 錯誤", m.error]);
-    if ((m.errStreak ?? 0) >= STREAK_WARN)
-      list.push([`工具連續失敗 ${m.errStreak} 次${m.toolError?.tool ? `（${m.toolError.tool}）` : ""}`, firstLine(m.toolError?.text)]);
-    if (a?.status === "working" && m.last && Date.now() - Date.parse(m.last) > STALE_MS)
-      list.push([`顯示工作中，但已 ${ago(m.last)} 沒有新紀錄`, "可能卡住，或在跑很久的指令"]);
-    if (pct(m) >= CTX_WARN) list.push([`上下文已用 ${pct(m)}%`, "接近上限，之後會壓縮或需要開新 session"]);
-    return list;
-  }
-
   // The one block to read: its state, what the session is, what it is doing or saying now, and warnings.
   hero(t, d, a) {
     const m = d.main;
@@ -240,7 +207,7 @@ export default class AgentInfo extends View {
       ? ["正在做", step ? (step.intent || step.tool) : "思考中", step ? `${step.tool} · ${ago(step.at)}` : null]
       : a?.status === "blocked" ? ["在等你", lead(m.reply) || "等你回應", null]
       : ["最後結果", lead(m.reply), null];
-    const alerts = this.alerts(m, a);
+    const alerts = alertsOf(m, a?.status);
     return v_flex().gap(10).p(12).rounded(10).bg(`${color}14`).border_1().border_color(`${color}55`)
       .child(h_flex().items_center().gap(8)
         .child(h_flex().flex_none().gap(5).items_center().px(8).h(22).rounded(11).bg(`${color}26`)
@@ -255,7 +222,7 @@ export default class AgentInfo extends View {
           .when(Boolean(meta), (x) => x.child(div().text_size(10.5).text_color(t.dim).child(meta))))
         .child(div().text_size(12.5).whitespace_normal().child(clip(text, 260)))))
       .when(alerts.length > 0, (el) => el.child(v_flex().gap(8).pt(10).border_t(1).border_color(`${color}40`)
-        .children(alerts.map(([head, detail]) => h_flex().items_start().gap(8)
+        .children(alerts.map(({ head, detail }) => h_flex().items_start().gap(8)
           .child(svg(`${ICON}/alert.svg`).size(14).flex_none().mt(1).text_color(t.blocked))
           .child(v_flex().flex_1().min_w(0).gap(1)
             .child(div().text_size(12).font_semibold().text_color(t.blocked).whitespace_normal().child(head))

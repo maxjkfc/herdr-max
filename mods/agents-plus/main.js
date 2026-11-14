@@ -3,8 +3,12 @@
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { agents, terminals, panes, focused, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout } from "herdr";
+import { agents, terminals, panes, focused, spaces, run, exec, hc, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout } from "herdr";
 import { counts } from "./logic.js";
+import { SUMMARY, JQ_STEP, JQ_BRIEF, CTX_WARN, alertsOf, ctxPct, kindOf, modelsFor } from "./probe.js";
+
+const STATS_MS = 15000; // a row's session numbers: fresh enough for a glance, cheap since only new lines are read
+const CTX_SHOW = 60; // context % worth a tag
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -86,7 +90,81 @@ export default class Agents extends View {
     this.pendingPins = JSON.parse(localStorage.getItem("pins") ?? "[]");
     if (!this.pendingPins.length) localStorage.removeItem("pins");
     this.migratingPins = new Set();
+    this.stats = new Map(); // address → its session's numbers for the row (probe.js SUMMARY)
+    this.models = new Map(); // machine → omp's model rates and context windows
+    this.polling = false;
     cx.timer.every(30000, (cx) => cx.notify());
+    cx.timer.after(1500, (cx) => this.poll(cx));
+    cx.timer.every(STATS_MS, (cx) => this.poll(cx));
+  }
+
+  // Every readable agent's session numbers: one run per machine, each reading only what its session added
+  // since the last run. Skipped while the window is in the background or the list isn't shown.
+  poll(cx) {
+    const bar = find(layout(), "sidebar");
+    if (this.polling || !window()?.active || !bar || bar.hidden || narrow()) return;
+    const byMachine = new Map();
+    for (const a of agents()) {
+      if (!kindOf(a)) continue;
+      const on = a.address.includes("/") ? a.address.split("/")[0] : "";
+      byMachine.set(on, [...(byMachine.get(on) ?? []), a]);
+    }
+    this.polling = true;
+    cx.spawn(async (cx) => {
+      const next = new Map();
+      await Promise.all([...byMachine].map(async ([key, list]) => {
+        const on = key || null;
+        try {
+          const lines = (await Promise.all(list.map(async (a) => {
+            const got = await hc(["get", a.address, "--json"]);
+            const pid = got.code === 0 ? JSON.parse(got.stdout)?.foreground?.pid : null;
+            return pid ? `${a.address} ${kindOf(a)} ${pid}` : null;
+          }))).filter(Boolean);
+          if (!lines.length) return;
+          const models = await modelsFor(this.models, exec, on);
+          const r = await exec("sh", ["-c", SUMMARY, "sh", lines.join("\n"), JQ_STEP, JQ_BRIEF, models], { on, timeout: 30000 });
+          for (const l of r.stdout.split("\n")) {
+            const x = l.trim() ? JSON.parse(l) : null;
+            if (x && !x.fail) next.set(x.a, x);
+          }
+        } catch {
+          // A machine out of reach keeps its last numbers.
+          for (const a of list) if (this.stats.has(a.address)) next.set(a.address, this.stats.get(a.address));
+        }
+      }));
+      this.stats = next;
+      this.polling = false;
+      cx.notify();
+    });
+  }
+
+  // A row's second line: its session's task progress, PR, context and warnings as small tags, only the
+  // unusual ones colored. An idle agent keeps one line unless something is wrong.
+  tags(t, a, machine, idle, indent, now) {
+    const s = this.stats.get(a.address);
+    if (!s) return null;
+    const alerts = alertsOf(s, a.status, now).filter((x) => x.key !== "ctx");
+    if (idle && !alerts.length) return null;
+    const ctx = ctxPct(s);
+    const pr = s.pr?.match(/\/pull\/(\d+)/)?.[1];
+    const tag = (id, text, { color, tip, icon } = {}) => h_flex().id(`${id}-${a.address}`).flex_none().h(17).px(5).gap(3).items_center().rounded(4)
+      .border_1().border_color(color ? `${color}66` : t.border).text_size(10.5).text_color(color ?? t.dim)
+      .when(Boolean(tip), (el) => el.tooltip(tip))
+      .when(Boolean(icon), (el) => el.child(svg(`mods/agent-info/icons/${icon}.svg`).size(10).flex_none()))
+      .child(text);
+    const plan = s.plan?.total ? s.plan : null;
+    const list = [
+      plan && tag("plan", `${plan.done}/${plan.total}`, { icon: "check", tip: `任務 ${plan.done}/${plan.total}${plan.current ? `：${plan.current}` : ""}` }),
+      pr && tag("pr", `#${pr}`, { icon: "pr", color: t.accent, tip: s.pr }).cursor_pointer()
+        .on_click((_e, cx) => { cx.stop_propagation(); exec("open", [s.pr]); }),
+      ctx >= CTX_SHOW && tag("ctx", `ctx ${ctx}%`, { color: ctx >= CTX_WARN ? t.blocked : null, tip: `上下文已用 ${ctx}%` }),
+      alerts.length > 0 && tag("alert", alerts.length > 1 ? `${alerts[0].short} +${alerts.length - 1}` : alerts[0].short,
+        { icon: "alert", color: t.blocked, tip: alerts.map((x) => (x.detail ? `${x.head}：${x.detail}` : x.head)).join("\n") }),
+    ].filter(Boolean);
+    if (!list.length) return null;
+    return h_flex().flex_wrap().gap(4).pl(indent).pb(7)
+      .when(Boolean(machine), (el) => el.child(tag("m", machine)))
+      .children(list);
   }
 
   // Stamps agents whose state changed. Done and idle count as one: looking at a
@@ -346,14 +424,14 @@ export default class Agents extends View {
       // Without a space header above (priority, pinned) the row names its space.
       const full = byPriority || isPinned;
       const name = full ? a.space_name || label(a) : more ?? (/^\d+$/.test(label(a)) ? a.program?.name || label(a) : label(a));
-      return h_flex()
+      const extra = this.tags(t, a, machine, idle, pic ? 25 : 0, now);
+      return v_flex()
         .id(`ag-${a.address}`)
         .px(8)
-        .h(30)
         .flex_none()
         .rounded(8)
-        .items_center()
-        .gap(9)
+        .border_1()
+        .border_color(a.focused ? t.border : "#00000000")
         .when(a.focused, (el) => el.bg(t.selected))
         .cursor_pointer()
         .hover((s) => s.bg(t.hover))
@@ -363,20 +441,25 @@ export default class Agents extends View {
           cx.notify();
         })
         .on_click(() => run("pane.focus", { pane: a.pane }))
-        .when(Boolean(pic), el => el.child(div().id(`agent-fold-${a.address}`)
-          .when(subs.length > 0, el => el.on_click((_e, cx) => {
-            cx.stop_propagation();
-            this.folded.has(a.address) ? this.folded.delete(a.address) : this.folded.add(a.address);
-            cx.notify();
-          })).child(pic)))
-        .child(h_flex().flex_1().min_w(0).gap(5).items_center()
-          .child(div().min_w(0).max_w(full && more ? 120 : 200).truncate().text_color(idle ? t.muted : t.foreground).child(name))
-          .when(full && Boolean(more), el => el.child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(`\u00b7 ${more}`))))
-        .when(Boolean(machine), el => el.child(div().text_size(10).text_color(t.dim).child(machine)))
-        .when(subs.length > 0, el => el.child(fold(a, subs)))
-        .when(this.hovered === a.address, el => el.child(pin))
-        .when(this.hovered !== a.address && Boolean(when), el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
-        .child(this.status(t, a, byPriority && !isPinned));
+        .child(h_flex()
+          .h(30)
+          .items_center()
+          .gap(9)
+          .when(Boolean(pic), el => el.child(div().id(`agent-fold-${a.address}`)
+            .when(subs.length > 0, el => el.on_click((_e, cx) => {
+              cx.stop_propagation();
+              this.folded.has(a.address) ? this.folded.delete(a.address) : this.folded.add(a.address);
+              cx.notify();
+            })).child(pic)))
+          .child(h_flex().flex_1().min_w(0).gap(5).items_center()
+            .child(div().min_w(0).max_w(full && more ? 120 : 200).truncate().text_color(idle ? t.muted : t.foreground).child(name))
+            .when(full && Boolean(more), el => el.child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(`\u00b7 ${more}`))))
+          .when(Boolean(machine) && !extra, el => el.child(div().text_size(10).text_color(t.dim).child(machine)))
+          .when(subs.length > 0, el => el.child(fold(a, subs)))
+          .when(this.hovered === a.address, el => el.child(pin))
+          .when(this.hovered !== a.address && Boolean(when), el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
+          .child(this.status(t, a, byPriority && !isPinned)))
+        .when(Boolean(extra), (el) => el.child(extra));
     };
 
     // Groups in list order: spaces (grouped) or priority sections. Agents of a
