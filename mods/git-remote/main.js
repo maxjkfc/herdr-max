@@ -44,6 +44,9 @@ function location(last) {
   if (pane && !pane.terminal && last) return last;
   return { cwd: pane?.cwd || f?.cwd || space?.folder, on: space?.machine ?? null, space: f?.space ?? space?.id };
 }
+// A folder as the account settings know it: its path, prefixed with its machine when on another one, so the same
+// path here and there keeps its own pick and its own .envrc.
+const folderKey = (dir, on) => (on ? `${on}:${dir}` : dir);
 
 export default class GitHub extends View {
   init(_props, cx) {
@@ -123,22 +126,32 @@ export default class GitHub extends View {
   entry(key = this.key()) { return (this.data[key] ??= { items: remembered(`d:${key}`, null), at: 0 }); }
   items() { return this.entry().items; }
 
-  // The picked account for a folder: the longest picked folder above it; null when none, or the pick is "auto".
-  chosenUser(cwd) {
+  // The picked account for a folder (folderKey): the longest picked folder above it; null when none, or the pick is "auto".
+  chosenUser(key) {
     let best = null;
-    for (const dir of Object.keys(this.chosen)) if ((cwd === dir || cwd.startsWith(`${dir}/`)) && (!best || dir.length > best.length)) best = dir;
+    for (const dir of Object.keys(this.chosen)) if ((key === dir || key.startsWith(`${dir}/`)) && (!best || dir.length > best.length)) best = dir;
     return best ? this.chosen[best] || null : null;
+  }
+
+  // The account a folder's .envrc names. On another machine it names that machine's gh account, which this
+  // computer's gh may not have: then it doesn't count.
+  declaredFor(key, on) {
+    const user = this.declared[key] ?? null;
+    return user && (!on || this.logins.some((l) => l.login === user)) ? user : null;
   }
 
   // Act as the gh account the focused folder wants: the pick, else its .envrc, else gh's active one, resolved to a
   // name each time so the chip, the cache keys and the gh calls agree even when something flips gh's active account.
-  // Reload who that is when it changed. A folder on another machine has no local .envrc to read, so the account stays as it was.
+  // Reload who that is when it changed. GitHub is reached through this computer's gh wherever the folder is, so a
+  // folder on another machine follows the same order; its .envrc is read over there.
   async syncUser() {
     const { cwd, on } = this.where();
-    if (cwd && !on) {
-      if (!(cwd in this.declared)) this.declared[cwd] = await declaredUser(cwd);
+    if (cwd) {
+      const key = folderKey(cwd, on);
+      // An unreachable machine says nothing about its .envrc: ask again next time.
+      if (!(key in this.declared)) { const got = await declaredUser(cwd, on); if (got !== undefined) this.declared[key] = got; }
       this.logins = await loginsOf();
-      const user = this.chosenUser(cwd) ?? this.declared[cwd] ?? this.logins.find((l) => l.active)?.login ?? null;
+      const user = this.chosenUser(key) ?? this.declaredFor(key, on) ?? this.logins.find((l) => l.active)?.login ?? null;
       if ((shared("git-remote.user") ?? null) !== user) setShared("git-remote.user", user);
     }
     const want = shared("git-remote.user") ?? null;
@@ -154,11 +167,12 @@ export default class GitHub extends View {
 
   // The account dropdown: a popup listing "auto" and every logged-in account, the current pick ticked.
   openAccountMenu() {
-    const { cwd, space } = this.where();
+    const { cwd, on, space } = this.where();
     if (!cwd) return;
-    const dir = spaces().find((s) => s.id === space)?.folder ?? cwd;
+    const key = folderKey(cwd, on);
+    const dir = folderKey(spaces().find((s) => s.id === space)?.folder ?? cwd, on);
     openOverlay({ mod: "git-remote", kind: "popup", width: 280, height: 64 + (this.logins.length + 1) * 46, at: "pointer",
-      props: { accountMenu: { dir, picked: this.chosenUser(cwd) ?? "", declared: this.declared[cwd] ?? null, logins: this.logins } } });
+      props: { accountMenu: { dir, picked: this.chosenUser(key) ?? "", declared: this.declaredFor(key, on), logins: this.logins } } });
   }
 
   async follow() {
@@ -469,8 +483,8 @@ export default class GitHub extends View {
         .child(e.loading ? div().px(6).child(spinner(13, t.muted)) : button("refresh", "", t, (_e, cx) => this.refresh(cx), { icon: "refresh", small: true, invisible: true, tooltip: "重新整理" })))
       .child(h_flex().px(10).pb(8).gap(6).items_center()
         .when(this.logins.length > 1, (x) => {
-          const cwd = this.where().cwd, picked = cwd ? this.chosenUser(cwd) : null;
-          const how = picked ? "手動指定" : cwd && this.declared[cwd] ? "由 .envrc 指定" : "gh 目前帳號";
+          const { cwd, on } = this.where(), key = cwd ? folderKey(cwd, on) : null, picked = key ? this.chosenUser(key) : null;
+          const how = picked ? "手動指定" : key && this.declaredFor(key, on) ? "由 .envrc 指定" : "gh 目前帳號";
           return x.child(h_flex().id("acct").flex_none().max_w(120).h(30).px(8).gap(5).items_center().rounded(6).border_1().border_color(t.border).bg(t.background)
             .text_size(12).text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover))
             .tooltip(`GitHub 帳號：${this.account?.login ?? "?"}（${how}）\n點擊選擇帳號`)
