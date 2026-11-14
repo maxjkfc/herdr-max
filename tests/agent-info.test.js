@@ -1,8 +1,8 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { JQ_PROG, PROBE, ago, fmtCost, fmtTokens, shape } from "../mods/agent-info/probe.js";
+import { JQ_BRIEF, JQ_FINAL, JQ_STEP, PROBE, SUMMARY, ago, alertsOf, fmtCost, fmtTokens, shape } from "../mods/agent-info/probe.js";
 
 // Real path: lsof reports /private/var for macOS's /var temp folders.
 const root = realpathSync(mkdtempSync(join(tmpdir(), "agent-info-")));
@@ -37,14 +37,22 @@ writeFileSync(subs.a, jsonl({ type: "session", id: "a", timestamp: "2026-01-01T0
 writeFileSync(subs.nested, jsonl({ type: "session", id: "n", timestamp: "2026-01-01T00:01:30Z" }, init("do inner"), reply("2026-01-01T00:01:31Z", [], usage(40, 0.4))));
 writeFileSync(subs.b, jsonl({ type: "session", id: "b", timestamp: "2026-01-01T00:02:00Z" }, init("do B")));
 
+// One whole file through JQ_STEP from no saved state: its {off, f, s} line.
+const step = (kind, file, isMain, models = {}) => {
+  const r = Bun.spawnSync(["jq", "-nRc", "--arg", "kind", kind, "--argjson", "isMain", String(isMain), "--arg", "f", file, "--argjson", "off", "0",
+    "--argjson", "models", JSON.stringify(models), "--slurpfile", "prev", "/dev/null", JQ_STEP], { stdin: Bun.file(file) });
+  expect(r.exitCode).toBe(0);
+  return r.stdout.toString();
+};
+
 const summarize = (files, open) => {
-  const input = Bun.spawnSync(["grep", "-H", "^", ...files]).stdout;
-  const r = Bun.spawnSync(["jq", "-n", "-R", "-c", "--arg", "kind", "omp", "--arg", "main", main, "--arg", "open", open.join("\n"), "--arg", "title", "", "--argjson", "metas", "{}", "--argjson", "models", "{}", JQ_PROG], { stdin: input });
+  const states = files.map((f) => step("omp", f, f === main)).join("");
+  const r = Bun.spawnSync(["jq", "-n", "-c", "--arg", "kind", "omp", "--arg", "main", main, "--arg", "open", open.join("\n"), "--arg", "title", "", "--argjson", "metas", "{}", "--argjson", "models", "{}", JQ_FINAL], { stdin: Buffer.from(states) });
   expect(r.exitCode).toBe(0);
   return JSON.parse(r.stdout.toString());
 };
 
-describe("JQ_PROG", () => {
+describe("JQ_STEP + JQ_FINAL", () => {
   const raw = summarize([main, subs.a, subs.nested, subs.b], [main, subs.nested]);
   const m = raw.files[main];
 
@@ -95,11 +103,19 @@ describe("shape", () => {
   });
 });
 
+// The saved read states go to the test folder, not the real temp folder.
+const env = { ...process.env, TMPDIR: root };
+// A process holding one or two session files open, as an agent does.
+const hold = (...files) => {
+  const holder = Bun.spawn(["sh", "-c", 'exec 3>>"$1" 4>>"${2:-$1}"; exec sleep 30', "sh", ...files]);
+  Bun.sleepSync(300);
+  return holder;
+};
+
 test("PROBE finds the main session and live sub-agents a process holds open", () => {
-  const holder = Bun.spawn(["sh", "-c", 'exec 3>>"$1" 4>>"$2"; exec sleep 30', "sh", main, subs.nested]);
+  const holder = hold(main, subs.nested);
   try {
-    Bun.sleepSync(300);
-    const r = Bun.spawnSync(["sh", "-c", PROBE, "sh", "omp", String(holder.pid), subs.a, JQ_PROG, "{}"]);
+    const r = Bun.spawnSync(["sh", "-c", PROBE, "sh", "omp", String(holder.pid), subs.a, JQ_STEP, JQ_FINAL, "{}"], { env });
     const raw = JSON.parse(r.stdout.toString());
     expect(raw.main).toBe(main);
     expect(raw.open.sort()).toEqual([main, subs.nested].sort());
@@ -110,6 +126,48 @@ test("PROBE finds the main session and live sub-agents a process holds open", ()
   }
 });
 
+test("PROBE reads only what was added: nothing twice, a half-written line once whole, a shrunk file from the start", () => {
+  const file = join(root, "sessions", "-inc", "I.jsonl");
+  mkdirSync(join(root, "sessions", "-inc"), { recursive: true });
+  writeFileSync(file, jsonl(reply("2026-01-01T00:00:01Z", [{ type: "text", text: "one" }], usage(100, 1))) + '{"type":"message","message":{"role":"assis');
+  const holder = hold(file);
+  const read = () => JSON.parse(Bun.spawnSync(["sh", "-c", PROBE, "sh", "omp", String(holder.pid), "", JQ_STEP, JQ_FINAL, "{}"], { env }).stdout.toString()).files[file];
+  const pick = (s) => [s.tok.total, s.replies, s.reply, s.cost];
+  try {
+    expect(pick(read())).toEqual([100, 1, "one", 1]);
+    expect(pick(read())).toEqual([100, 1, "one", 1]);
+    appendFileSync(file, 'tant","model":"m1","content":[{"type":"text","text":"two"}],"usage":{"totalTokens":5,"cost":{"total":0.5}}}}\n');
+    expect(pick(read())).toEqual([105, 2, "two", 1.5]);
+    writeFileSync(file, jsonl(reply("2026-01-01T00:00:02Z", [], usage(7, 0))));
+    expect(pick(read())).toEqual([7, 1, undefined, 0]);
+  } finally {
+    holder.kill();
+  }
+});
+
+test("SUMMARY reads each listed agent's main session in one run", () => {
+  const holder = hold(main, subs.nested);
+  try {
+    const list = `t1 omp ${holder.pid}\nt2 vim ${holder.pid}\nt3 omp 999999`;
+    const r = Bun.spawnSync(["sh", "-c", SUMMARY, "sh", list, JQ_STEP, JQ_BRIEF, JSON.stringify({ m1: { window: 2000 } })], { env });
+    const rows = Object.fromEntries(r.stdout.toString().trim().split("\n").map((l) => JSON.parse(l)).map((x) => [x.a, x]));
+    expect(rows.t1).toMatchObject({ ctx: 1075, window: 2000, last: "2026-01-01T00:00:06Z", plan: null });
+    expect(rows.t1.cost).toBeCloseTo(1.51);
+    expect([rows.t2.fail, rows.t3.fail]).toEqual(["unsupported", "nosession"]);
+  } finally {
+    holder.kill();
+  }
+});
+
+test("alerts: API error, failing streak, a working agent gone quiet, nearly full context", () => {
+  const now = Date.parse("2026-01-01T01:00:00Z");
+  const m = { error: "overloaded", errStreak: 3, toolError: { tool: "bash", text: "\nexit 1\nmore" }, last: "2026-01-01T00:45:00Z", ctx: 90, window: 100 };
+  expect(alertsOf(m, "working", now).map((x) => [x.key, x.short])).toEqual([["api", "API 錯誤"], ["tools", "失敗 ×3"], ["stale", "15m 沒動靜"], ["ctx", "上下文 90%"]]);
+  expect(alertsOf(m, "working", now)[1].detail).toBe("exit 1");
+  // Idle and quiet is just idle.
+  expect(alertsOf({ ...m, error: null, errStreak: 2, ctx: 10 }, "idle", now)).toEqual([]);
+});
+
 test("formatters", () => {
   expect([fmtTokens(999), fmtTokens(1234), fmtTokens(56789), fmtTokens(2_240_000), fmtTokens(77_500_000)]).toEqual(["999", "1.2k", "57k", "2.24M", "77.5M"]);
   expect([fmtCost(0), fmtCost(0.0042), fmtCost(1.856), fmtCost(135.4)]).toEqual(["$0", "$0.0042", "$1.86", "$135"]);
@@ -117,10 +175,10 @@ test("formatters", () => {
   expect([ago("2026-01-01T02:59:30Z", now), ago("2026-01-01T02:48:00Z", now), ago("2026-01-01T00:00:00Z", now), ago(null, now)]).toEqual(["<1m", "12m", "3h", ""]);
 });
 
-// One file through JQ_PROG as the main session of `kind`.
+// One file as the main session of `kind`, as PROBE shows it.
 const one = (kind, file, models = {}) => {
-  const input = Bun.spawnSync(["grep", "-H", "^", file]).stdout;
-  const r = Bun.spawnSync(["jq", "-nRc", "--arg", "kind", kind, "--arg", "main", file, "--arg", "open", "", "--arg", "title", "", "--argjson", "metas", "{}", "--argjson", "models", JSON.stringify(models), JQ_PROG], { stdin: input });
+  const r = Bun.spawnSync(["jq", "-nc", "--arg", "kind", kind, "--arg", "main", file, "--arg", "open", "", "--arg", "title", "", "--argjson", "metas", "{}", "--argjson", "models", JSON.stringify(models), JQ_FINAL],
+    { stdin: Buffer.from(step(kind, file, true, models)) });
   expect(r.exitCode).toBe(0);
   return JSON.parse(r.stdout.toString()).files[file];
 };
