@@ -153,7 +153,7 @@ test("Claude: task list, changed files, PR, and failing tools in a row", () => {
     { type: "cost-state", totalCostUSD: 1, totalLinesAdded: 12, totalLinesRemoved: 3 },
   ));
   const s = one("claude", file);
-  expect(s.plan).toEqual({ total: 3, done: 1, current: "b" });
+  expect(s.plan).toEqual({ total: 3, done: 1, current: "b", items: [{ text: "a", status: "completed" }, { text: "b", status: "in_progress" }, { text: "c", status: "pending" }] });
   expect(s.touched).toEqual(["/code/x/a.js"]);
   expect([s.toolErrors, s.errStreak]).toEqual([3, 2]);
   expect(s.pr).toBe("https://github.com/o/r/pull/7");
@@ -176,7 +176,7 @@ test("omp: todo progress, edited paths, and the PR from gh pr create", () => {
   expect(s.touched).toEqual(["/code/x/a.js", "/code/x/b.js"]);
   expect([s.toolErrors, s.errStreak]).toEqual([1, 0]);
   expect(s.pr).toBe("https://github.com/o/r/pull/9");
-  expect(s.plan).toEqual({ total: 1, done: 1, current: null });
+  expect(s.plan).toEqual({ total: 1, done: 1, current: null, items: [{ text: "a", status: "completed" }] });
   expect(s.window).toBe(1000);
 });
 

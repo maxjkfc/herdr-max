@@ -35,7 +35,8 @@ def toks($in; $out; $cr; $cw): .tok.input += $in | .tok.output += $out | .tok.ca
 def plan($items): ($items // []) | if type == "array" and length > 0 then
   map(select(.status != "abandoned" and .status != "dropped")) as $l
   | {total: ($l | length), done: ($l | map(select(.status == "completed")) | length),
-     current: ($l | map(select(.status == "in_progress")) | first | (.content // .activeForm // null))}
+     current: ($l | map(select(.status == "in_progress")) | first | (.content // .activeForm // null)),
+     items: ($l[:40] | map({text: ((.content // .activeForm // "") | tostring | clip(160)), status}))}
   else null end;
 def toolres($err; $tool; $text): if $err
   then .toolErrors += 1 | .errStreak += 1 | .toolError = {tool: $tool, text: ($text | tostring | clip(300))}
@@ -67,7 +68,7 @@ def omp($e):
                 | reduce (($a.input // "") | tostring | [match("(?m)^\\[([^\\]\\n#]+)#[0-9A-Za-z]{4}\\]"; "g").captures[0].string] | .[]) as $f (.; touched($f))
               elif $c.name == "bash" and (($a.command // "") | tostring | test("gh pr create")) then .prPending = true
               else . end)
-      elif $m.role == "user" then .prompts += 1 | .prompt = (($m.content | txt) | clip(1500))
+      elif $m.role == "user" then .prompts += 1 | .prompt = (($m.content | txt) | clip(1500)) | .promptAt = $e.timestamp
       elif $m.role == "toolResult" then ($m.content | txt) as $t
         | toolres($m.isError == true; $m.toolName; $t)
         | (if .prPending and $m.toolName == "bash" then (prurl($t) as $u | if $u then .pr = $u else . end) | .prPending = false else . end)
@@ -147,7 +148,7 @@ def codex($e): $e.payload as $p
     elif $e.type == "event_msg" and $p.type == "task_complete" then .busy = false
       | (if ($p.last_agent_message // "") != "" then .reply = ($p.last_agent_message | clip(1500)) else . end)
     elif $e.type == "event_msg" and $p.type == "item_completed" then ($p.item // {}) as $i
-      | if $i.type == "UserMessage" then (($i.content | txt) as $t | .prompt = ($t | clip(1500)) | (if .task == null then .task = ($t | clip(1500)) else . end))
+      | if $i.type == "UserMessage" then (($i.content | txt) as $t | .prompt = ($t | clip(1500)) | .promptAt = $e.timestamp | (if .task == null then .task = ($t | clip(1500)) else . end))
         elif $i.type == "AgentMessage" then (($i.content | txt) as $t | if $t != "" then .reply = ($t | clip(1500)) else . end)
         elif $i.type == "CommandExecution" then ($i.aggregated_output // "" | tostring) as $out
           | .doing = {tool: "shell", intent: ($i.command | tostring | clip(160)), at: $e.timestamp}
