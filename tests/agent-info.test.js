@@ -180,6 +180,23 @@ test("omp: todo progress, edited paths, and the PR from gh pr create", () => {
   expect(s.window).toBe(1000);
 });
 
+test("tokens split by model when the session switches models, side calls marked", () => {
+  const file = join(root, "omp-switch.jsonl");
+  const on = (ts, model, total, c) => ({ ...reply(ts, [], usage(total, c)), message: { ...reply(ts, [], usage(total, c)).message, model } });
+  writeFileSync(file, jsonl(
+    on("2026-01-01T00:00:01Z", "opus", 100, 1),
+    on("2026-01-01T00:00:02Z", "gpt", 40, 0.2),
+    { type: "model_usage", timestamp: "2026-01-01T00:00:03Z", provider: "typesafe", model: "jev", usage: usage(5, 0.01) },
+    on("2026-01-01T00:00:04Z", "opus", 60, 0.5),
+  ));
+  const s = one("omp", file);
+  expect(s.tok.total).toBe(205);
+  const pick = (u) => ({ tokens: u.tokens, cost: u.cost, calls: u.calls, aux: u.aux, from: u.from, to: u.to });
+  expect(pick(s.byModel["anthropic/opus"])).toEqual({ tokens: 160, cost: 1.5, calls: 2, aux: 0, from: "2026-01-01T00:00:01Z", to: "2026-01-01T00:00:04Z" });
+  expect(pick(s.byModel["anthropic/gpt"])).toEqual({ tokens: 40, cost: 0.2, calls: 1, aux: 0, from: "2026-01-01T00:00:02Z", to: "2026-01-01T00:00:02Z" });
+  expect(pick(s.byModel["typesafe/jev"])).toMatchObject({ tokens: 5, calls: 1, aux: 1 });
+});
+
 test("Codex uses the latest cumulative usage and rate limits", () => {
   const file = join(root, "codex.jsonl");
   const event = (input, cached, output, percent) => ({ type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: input, cached_input_tokens: cached, output_tokens: output, total_tokens: input + output }, last_token_usage: { input_tokens: 30, output_tokens: 2 }, model_context_window: 100 }, rate_limits: { primary: { used_percent: percent } } } });

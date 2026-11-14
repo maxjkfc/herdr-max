@@ -30,6 +30,13 @@ def bill($m; $in; $out; $cr; $cw; $cw1h): rate($m; $in + $cr + $cw + $cw1h) as $
   | if $r == null then .unpriced = true
     else .cost += (($in * ($r.input // 0) + $out * ($r.output // 0) + $cr * ($r.cacheRead // 0) + $cw * ($r.cacheWrite // 0) + $cw1h * 2 * ($r.input // 0)) / 1000000) end;
 def toks($in; $out; $cr; $cw): .tok.input += $in | .tok.output += $out | .tok.cacheRead += $cr | .tok.cacheWrite += $cw | .tok.total += ($in + $out + $cr + $cw);
+# Per model: switching models mid-session splits the totals. $cost null = no price for it.
+def per($k; $in; $out; $cr; $cw; $total; $cost; $aux; $ts):
+  if ($k // "") == "" or ($k | endswith("/")) then . else
+  .byModel[$k] |= ((. // {tokens: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, calls: 0, aux: 0, from: $ts})
+    | .tokens += $total | .input += $in | .output += $out | .cacheRead += $cr | .cacheWrite += $cw
+    | .calls += 1 | (if $aux then .aux += 1 else . end) | .to = $ts
+    | (if $cost == null then .unpriced = true else .cost += $cost end)) end;
 
 # What tells you whether to step in: the agent's own task list, failing tools, and what it produced.
 def plan($items): ($items // []) | if type == "array" and length > 0 then
@@ -57,6 +64,8 @@ def omp($e):
     $e.message as $m
     | if $m.role == "assistant" then
         use($m.usage) | .replies += 1
+        | ($m.usage // {}) as $u
+        | per(($m.provider // "") + "/" + ($m.model // ""); $u.input // 0; $u.output // 0; $u.cacheRead // 0; $u.cacheWrite // 0; $u.totalTokens // 0; $u.cost.total // 0; false; .last)
         | .model = (($m.provider // "") + "/" + ($m.model // ""))
         | .ctx = (($m.usage.input // 0) + ($m.usage.cacheRead // 0) + ($m.usage.cacheWrite // 0) + ($m.usage.output // 0))
         | .error = (if $m.errorMessage then ($m.errorMessage | tostring | clip(300)) else null end)
@@ -75,6 +84,8 @@ def omp($e):
         | (if $m.toolName == "todo" and $m.details.phases then .plan = plan([$m.details.phases[]?.tasks[]?]) else . end)
       else . end
   elif $e.type == "model_usage" then use($e.usage) | .aux += ($e.usage.cost.total // 0)
+    | ($e.usage // {}) as $u
+    | per(($e.provider // "") + "/" + ($e.model // ""); $u.input // 0; $u.output // 0; $u.cacheRead // 0; $u.cacheWrite // 0; $u.totalTokens // 0; $u.cost.total // 0; true; .last)
   elif $e.type == "compaction" then .compactions += 1
     | .compaction = {at: $e.timestamp, short: $e.shortSummary, summary: (($e.summary // "") | clip(4000)), before: $e.tokensBefore, after: $e.tokensAfter}
   elif $e.type == "custom" and $e.customType == "tool_execution_start" then
@@ -96,7 +107,11 @@ def claude($e):
           | ($u.cache_creation.ephemeral_1h_input_tokens // 0) as $h
           | toks($u.input_tokens // 0; $u.output_tokens // 0; $u.cache_read_input_tokens // 0; $u.cache_creation_input_tokens // 0)
           | .ctx = (($u.input_tokens // 0) + ($u.cache_read_input_tokens // 0) + ($u.cache_creation_input_tokens // 0) + ($u.output_tokens // 0))
+          | .cost as $c0
           | bill($m.model; $u.input_tokens // 0; $u.output_tokens // 0; $u.cache_read_input_tokens // 0; ($u.cache_creation_input_tokens // 0) - $h; $h)
+          | per($m.model; $u.input_tokens // 0; $u.output_tokens // 0; $u.cache_read_input_tokens // 0; $u.cache_creation_input_tokens // 0;
+              ($u.input_tokens // 0) + ($u.output_tokens // 0) + ($u.cache_read_input_tokens // 0) + ($u.cache_creation_input_tokens // 0);
+              (if $models[$m.model // ""].cost == null then null else (.cost // 0) - ($c0 // 0) end); false; .last)
         end)
       | reduce ($m.content // [] | if type == "array" then .[] else empty end) as $c (.;
           if $c.type == "text" and ($c.text // "") != "" then .reply = ($c.text | clip(1500))
@@ -134,7 +149,11 @@ def codex($e): $e.payload as $p
     elif $e.type == "turn_context" then .model = $p.model
     elif $e.type == "token_usage_record" then ($p.usage // {}) as $u
       | .replies += 1
+      | .cost as $c0
       | bill(.model; ($u.input_tokens // 0) - ($u.cached_input_tokens // 0); $u.output_tokens // 0; $u.cached_input_tokens // 0; $u.cache_write_input_tokens // 0; 0)
+      | per(.model; ($u.input_tokens // 0) - ($u.cached_input_tokens // 0); $u.output_tokens // 0; $u.cached_input_tokens // 0; $u.cache_write_input_tokens // 0;
+          $u.total_tokens // (($u.input_tokens // 0) + ($u.output_tokens // 0));
+          (if $models[.model // ""].cost == null then null else (.cost // 0) - ($c0 // 0) end); false; .last)
     elif $e.type == "compacted" then .compactions += 1
       | .compaction = {at: $e.timestamp, short: null, summary: (($p.message // "") | tostring | clip(4000)), before: null, after: null}
     elif $e.type == "event_msg" and $p.type == "token_count" then

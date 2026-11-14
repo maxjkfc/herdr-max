@@ -57,12 +57,13 @@ const STATES = {
   idle: { word: "閒置", color: "idle" },
 };
 
-function when(iso) {
+// "HH:MM" today, else "M/D HH:MM"; `dated` always adds the date.
+function when(iso, dated = false) {
   const d = new Date(iso ?? "");
   if (Number.isNaN(d.getTime())) return "";
   const pad = (n) => String(n).padStart(2, "0");
   const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  return d.toDateString() === new Date().toDateString() ? time : `${d.getMonth() + 1}/${d.getDate()} ${time}`;
+  return !dated && d.toDateString() === new Date().toDateString() ? time : `${d.getMonth() + 1}/${d.getDate()} ${time}`;
 }
 
 const ERRORS = {
@@ -346,6 +347,38 @@ export default class AgentInfo extends View {
       ...rows);
   }
 
+  // Cumulative tokens, split by model in the order each was first used: a mid-session switch shows as two rows.
+  usage(t, d) {
+    const m = d.main;
+    const total = m.tok?.total ?? 0;
+    // Models the agent talked through, in the order first used; background side calls after them.
+    const rows = Object.entries(m.byModel ?? {})
+      .sort(([, a], [, b]) => Number(a.aux === a.calls) - Number(b.aux === b.calls) || (a.from ?? "").localeCompare(b.from ?? ""));
+    const main = rows.filter(([, u]) => u.aux < u.calls).length;
+    return this.card(t, `Tokens · 累計 ${fmtTokens(total)}`,
+      d.subs.length ? div().text_size(10.5).text_color(t.dim).child(`另 subagent ${fmtTokens(d.subTokens)}`) : null,
+      main > 1 ? div().text_size(10.5).text_color(t.dim).child(`中途換過模型：共 ${main} 個`) : null,
+      ...rows.map(([key, u]) => {
+        const name = key.split("/").pop().replace(/:.*$/, "");
+        const provider = key.includes("/") ? key.split("/")[0] : "";
+        const background = u.aux === u.calls;
+        // Both ends carry the date when they fall on different days: "11/13 19:05 – 11/14 13:19".
+        const days = u.from && u.to && new Date(u.from).toDateString() !== new Date(u.to).toDateString();
+        const at = (iso) => (days ? when(iso, true) : when(iso));
+        const span = u.from ? `${at(u.from)}${u.to && at(u.to) !== at(u.from) ? ` – ${at(u.to)}` : ""}` : "";
+        return v_flex().gap(3)
+          .child(h_flex().items_center().gap(6)
+            .child(div().min_w(0).truncate().text_size(12).font_semibold().text_color(background ? t.muted : t.foreground).child(name))
+            .when(background, (el) => el.child(div().flex_none().px(5).h(16).rounded(4).bg(t.hover).text_size(10).text_color(t.dim).flex().items_center().child("背景")))
+            .child(div().flex_1())
+            .child(div().flex_none().text_size(12).font_bold().child(fmtTokens(u.tokens)))
+            .child(div().flex_none().w(52).text_size(10.5).text_color(t.dim).text_right().child(cost(u.cost, u.unpriced, d.estimated))))
+          .child(this.bar(t, total ? (u.tokens / total) * 100 : 0, background ? t.dim : t.accent, 3))
+          .child(div().text_size(10.5).text_color(t.dim).truncate()
+            .child([provider, span, background ? `${u.calls} 次呼叫` : `${u.calls - u.aux} 次回覆`].filter(Boolean).join(" · ")));
+      }));
+  }
+
   // Your last instruction, and the full reply the status block only opens.
   talk(t, m) {
     if (!m.prompt && !m.reply) return null;
@@ -359,7 +392,7 @@ export default class AgentInfo extends View {
     const m = d.main, tok = m.tok ?? {};
     const open = this.expanded.has("ai-details");
     const box = v_flex().gap(8).p(12).rounded(10).bg(t.surface).border_1().border_color(t.border)
-      .child(this.fold(t, "ai-details", "詳細資料", `${(m.model ?? "?").split("/").pop()} · ${fmtTokens(tok.total)} tokens`));
+      .child(this.fold(t, "ai-details", "詳細資料", `Session ID、目前模型 ${(m.model ?? "?").split("/").pop()}、token 明細、壓縮摘要`));
     if (!open) return box;
     const copy = div().id("ai-copy-id").flex_none().size(20).flex().items_center().justify_center().rounded(5).cursor_pointer()
       .hover((x) => x.bg(t.hover)).tooltip("複製 Session ID")
@@ -440,7 +473,7 @@ export default class AgentInfo extends View {
     return frame.child(v_flex().id("ai-body").flex_1().min_h(0).overflow_y_scrollbar().p(10).gap(10)
       .child(this.hero(t, d, a))
       .child(this.stats(t, d))
-      .children([this.tasks(t, d.main, a), this.output(t, d.main), this.talk(t, d.main), this.subagents(t, d)].filter(Boolean))
+      .children([this.tasks(t, d.main, a), this.output(t, d.main), this.usage(t, d), this.talk(t, d.main), this.subagents(t, d)].filter(Boolean))
       .child(this.details(t, d)));
   }
 }
