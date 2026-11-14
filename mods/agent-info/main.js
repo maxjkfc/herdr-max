@@ -347,36 +347,68 @@ export default class AgentInfo extends View {
       ...rows);
   }
 
-  // Cumulative tokens, split by model in the order each was first used: a mid-session switch shows as two rows.
+  // Cumulative tokens as pictures: one bar in usage order (each run of replies on a model, sized by its tokens),
+  // each model's share, and the switch log. Background side calls fold into one line.
   usage(t, d) {
     const m = d.main;
     const total = m.tok?.total ?? 0;
-    // Models the agent talked through, in the order first used; background side calls after them.
-    const rows = Object.entries(m.byModel ?? {})
-      .sort(([, a], [, b]) => Number(a.aux === a.calls) - Number(b.aux === b.calls) || (a.from ?? "").localeCompare(b.from ?? ""));
-    const main = rows.filter(([, u]) => u.aux < u.calls).length;
-    return this.card(t, `Tokens · 累計 ${fmtTokens(total)}`,
-      d.subs.length ? div().text_size(10.5).text_color(t.dim).child(`另 subagent ${fmtTokens(d.subTokens)}`) : null,
-      main > 1 ? div().text_size(10.5).text_color(t.dim).child(`中途換過模型：共 ${main} 個`) : null,
-      ...rows.map(([key, u]) => {
-        const name = key.split("/").pop().replace(/:.*$/, "");
-        const provider = key.includes("/") ? key.split("/")[0] : "";
-        const background = u.aux === u.calls;
-        // Both ends carry the date when they fall on different days: "11/13 19:05 – 11/14 13:19".
-        const days = u.from && u.to && new Date(u.from).toDateString() !== new Date(u.to).toDateString();
-        const at = (iso) => (days ? when(iso, true) : when(iso));
-        const span = u.from ? `${at(u.from)}${u.to && at(u.to) !== at(u.from) ? ` – ${at(u.to)}` : ""}` : "";
-        return v_flex().gap(3)
-          .child(h_flex().items_center().gap(6)
-            .child(div().min_w(0).truncate().text_size(12).font_semibold().text_color(background ? t.muted : t.foreground).child(name))
-            .when(background, (el) => el.child(div().flex_none().px(5).h(16).rounded(4).bg(t.hover).text_size(10).text_color(t.dim).flex().items_center().child("背景")))
-            .child(div().flex_1())
-            .child(div().flex_none().text_size(12).font_bold().child(fmtTokens(u.tokens)))
-            .child(div().flex_none().w(52).text_size(10.5).text_color(t.dim).text_right().child(cost(u.cost, u.unpriced, d.estimated))))
-          .child(this.bar(t, total ? (u.tokens / total) * 100 : 0, background ? t.dim : t.accent, 3))
-          .child(div().text_size(10.5).text_color(t.dim).truncate()
-            .child([provider, span, background ? `${u.calls} 次呼叫` : `${u.calls - u.aux} 次回覆`].filter(Boolean).join(" · ")));
-      }));
+    const all = Object.entries(m.byModel ?? {});
+    const models = all.filter(([, u]) => u.aux < u.calls).sort(([, a], [, b]) => (a.from ?? "").localeCompare(b.from ?? ""));
+    const side = all.filter(([, u]) => u.aux === u.calls);
+    const palette = [t.accent, t.ansi5, t.ansi3, t.ansi6, t.ansi2, t.ansi1].filter(Boolean);
+    const color = new Map(models.map(([k], i) => [k, palette[i % palette.length]]));
+    const name = (k) => k.split("/").pop().replace(/:.*$/, "");
+    const runs = m.runs ?? [];
+    const runTotal = runs.reduce((n, r) => n + r.tokens, 0);
+    const days = runs.length && new Date(runs[0].from).toDateString() !== new Date(runs[runs.length - 1].to).toDateString();
+    const at = (iso) => when(iso, days);
+    const swatch = (k) => div().size(8).flex_none().rounded(2).bg(color.get(k) ?? t.dim);
+
+    const head = h_flex().items_end().gap(8)
+      .child(div().text_size(22).font_bold().child(fmtTokens(total)))
+      .child(div().pb(3).text_size(10.5).text_color(t.dim).truncate()
+        .child([models.length > 1 && `${models.length} 個模型`, d.subs.length && `另 subagent ${fmtTokens(d.subTokens)}`].filter(Boolean).join(" · ")));
+
+    const timeline = runTotal ? v_flex().gap(3)
+      .child(h_flex().w_full().h(12).gap(1).rounded(3).overflow_hidden()
+        .children(runs.map((r, i) => div().id(`ai-run-${i}`).h_full().flex_none()
+          .w(`${Math.max((r.tokens / runTotal) * 100, 0.8)}%`).bg(color.get(r.model) ?? t.dim)
+          .tooltip(`${name(r.model)} · ${fmtTokens(r.tokens)} · ${at(r.from)} – ${at(r.to)}`))))
+      .child(h_flex().justify_between().text_size(10).text_color(t.dim)
+        .child(div().child(at(runs[0].from)))
+        .child(div().child(at(runs[runs.length - 1].to)))) : null;
+
+    const legend = v_flex().gap(5).children(models.map(([k, u]) => h_flex().items_center().gap(6)
+      .child(swatch(k))
+      .child(div().flex_1().min_w(0).truncate().text_size(12).font_semibold().child(name(k)))
+      .child(div().flex_none().text_size(12).font_bold().child(fmtTokens(u.tokens)))
+      .child(div().flex_none().w(34).text_right().text_size(10.5).text_color(t.muted).child(total ? `${Math.round((u.tokens / total) * 100)}%` : ""))
+      .child(div().flex_none().w(52).text_right().text_size(10.5).text_color(t.dim).child(cost(u.cost, u.unpriced, d.estimated)))));
+
+    const sideTokens = side.reduce((n, [, u]) => n + u.tokens, 0);
+    const sideCost = side.reduce((n, [, u]) => n + (u.cost ?? 0), 0);
+    const background = side.length ? div().id("ai-side").text_size(10.5).text_color(t.dim).truncate()
+      .tooltip(side.map(([k, u]) => `${name(k)} ${fmtTokens(u.tokens)}`).join("、"))
+      .child(`背景呼叫（標題、自動判斷）${fmtTokens(sideTokens)} · ${fmtCost(sideCost)} · ${side.length} 個模型`) : null;
+
+    // The switch log: newest first; long sessions fold to the last five.
+    let log = null;
+    if (runs.length > 1) {
+      const open = this.expanded.has("ai-runs");
+      const shown = (open ? runs : runs.slice(-5)).slice().reverse();
+      log = v_flex().gap(4).pt(8).border_t(1).border_color(t.border)
+        .child(h_flex().justify_between()
+          .child(div().text_size(10.5).text_color(t.dim).font_semibold().child(`切換紀錄 · ${runs.length - 1} 次`))
+          .when(runs.length > 5, (el) => el.child(div().id("ai-runs").text_size(10.5).text_color(t.dim).cursor_pointer()
+            .hover((x) => x.text_color(t.muted)).on_click((_e, cx) => { this.toggle("ai-runs"); cx.notify(); })
+            .child(open ? "只看最近 5 段" : `全部 ${runs.length} 段`))))
+        .children(shown.map((r) => h_flex().items_center().gap(6)
+          .child(swatch(r.model))
+          .child(div().flex_none().w(96).text_size(10.5).text_color(t.dim).child(`${at(r.from)}`))
+          .child(div().flex_1().min_w(0).truncate().text_size(11.5).child(name(r.model)))
+          .child(div().flex_none().text_size(11.5).font_semibold().child(fmtTokens(r.tokens)))));
+    }
+    return this.card(t, "Tokens", null, head, timeline, legend, background, log);
   }
 
   // Your last instruction, and the full reply the status block only opens.

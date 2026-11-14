@@ -195,6 +195,8 @@ test("tokens split by model when the session switches models, side calls marked"
   expect(pick(s.byModel["anthropic/opus"])).toEqual({ tokens: 160, cost: 1.5, calls: 2, aux: 0, from: "2026-01-01T00:00:01Z", to: "2026-01-01T00:00:04Z" });
   expect(pick(s.byModel["anthropic/gpt"])).toEqual({ tokens: 40, cost: 0.2, calls: 1, aux: 0, from: "2026-01-01T00:00:02Z", to: "2026-01-01T00:00:02Z" });
   expect(pick(s.byModel["typesafe/jev"])).toMatchObject({ tokens: 5, calls: 1, aux: 1 });
+  // Usage order, side calls left out: opus, then gpt, then back to opus.
+  expect(s.runs.map((r) => [r.model, r.tokens])).toEqual([["anthropic/opus", 100], ["anthropic/gpt", 40], ["anthropic/opus", 60]]);
 });
 
 test("Codex uses the latest cumulative usage and rate limits", () => {

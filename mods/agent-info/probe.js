@@ -31,12 +31,16 @@ def bill($m; $in; $out; $cr; $cw; $cw1h): rate($m; $in + $cr + $cw + $cw1h) as $
     else .cost += (($in * ($r.input // 0) + $out * ($r.output // 0) + $cr * ($r.cacheRead // 0) + $cw * ($r.cacheWrite // 0) + $cw1h * 2 * ($r.input // 0)) / 1000000) end;
 def toks($in; $out; $cr; $cw): .tok.input += $in | .tok.output += $out | .tok.cacheRead += $cr | .tok.cacheWrite += $cw | .tok.total += ($in + $out + $cr + $cw);
 # Per model: switching models mid-session splits the totals. $cost null = no price for it.
+# runs: consecutive replies on one model, in order (side calls left out), the last 100 kept.
 def per($k; $in; $out; $cr; $cw; $total; $cost; $aux; $ts):
   if ($k // "") == "" or ($k | endswith("/")) then . else
-  .byModel[$k] |= ((. // {tokens: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, calls: 0, aux: 0, from: $ts})
+  (.byModel[$k] |= ((. // {tokens: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, calls: 0, aux: 0, from: $ts})
     | .tokens += $total | .input += $in | .output += $out | .cacheRead += $cr | .cacheWrite += $cw
     | .calls += 1 | (if $aux then .aux += 1 else . end) | .to = $ts
-    | (if $cost == null then .unpriced = true else .cost += $cost end)) end;
+    | (if $cost == null then .unpriced = true else .cost += $cost end)))
+  | if $aux then . else .runs |= ((. // [])
+      | if length > 0 and .[-1].model == $k then .[-1].tokens += $total | .[-1].calls += 1 | .[-1].to = $ts
+        else (. + [{model: $k, tokens: $total, calls: 1, from: $ts, to: $ts}])[-100:] end) end end;
 
 # What tells you whether to step in: the agent's own task list, failing tools, and what it produced.
 def plan($items): ($items // []) | if type == "array" and length > 0 then
