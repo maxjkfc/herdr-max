@@ -3,6 +3,7 @@ import { div, svg, image } from "gpui-kit";
 import { run, notify, openOverlay, closeOverlay, knownAgents, spaces, panes, exec, home, shared, setShared, nextCommand } from "herdr";
 import { glyph, under } from "./ui.js";
 import { startAgent } from "./startagent.js";
+import { linkProjectSkills } from "./skilllink.js";
 
 export function copied(cx, text, title, body) {
   cx.write_to_clipboard(text);
@@ -55,6 +56,8 @@ export async function openIssueWorktree({ issue, folder, space, argv, task }) {
   if (add.code !== 0 && !/already checked out|already exists/i.test(add.stderr)) {
     throw new Error((add.stderr || add.stdout).trim() || "git worktree add failed");
   }
+
+  await linkProjectSkills(mainRepo, cleanWt);
 
   const parentSpaceId =
     space ??

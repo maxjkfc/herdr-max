@@ -14,6 +14,7 @@ import {
   shared,
   setShared,
 } from "herdr";
+import { linkProjectSkills } from "./skilllink.js";
 
 const helperPath = () => `${home()}/.config/herdr-app/mods/worktree-plus/wt-helper.py`;
 const ROOT = (userHome) => `${userHome}/.herdr/worktrees`;
@@ -418,6 +419,7 @@ export default class WorktreePlus extends View {
           cx.notify();
           return;
         }
+        await linkProjectSkills(this.repo.main, path, this.on);
         const meta = { ...(shared("worktree-plus.meta") ?? {}) };
         meta[path.replace(/\/+$/, "")] = {
           parentSpaceId: this.targetSpaceId,
