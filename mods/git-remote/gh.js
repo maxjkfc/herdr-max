@@ -89,6 +89,29 @@ const RUN = "databaseId,number,displayTitle,status,conclusion,workflowName,headB
 const repoName = (i) => i.repository?.nameWithOwner ?? i.repository?.fullName ?? null;
 const norm = (list, repo) => list.map((i) => ({ ...i, repo: repo ?? repoName(i), comments: i.comments?.length ?? i.commentsCount ?? 0 }));
 
+// `gh search prs` has no head commit, mergeability or checks, and the card won't offer Merge without them.
+// One GraphQL call fetches them for every open PR of a cross-repo list, in the shape `gh pr list --json` gives.
+const CHECKS = "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { __typename "
+  + "... on CheckRun { name status conclusion detailsUrl checkSuite { workflowRun { workflow { name } } } } "
+  + "... on StatusContext { context state targetUrl } } } } } } }";
+async function withMergeState(items) {
+  const open = items.filter((i) => String(i.state).toUpperCase() === "OPEN" && i.repo?.includes("/"));
+  if (!open.length) return items;
+  const query = `{ ${open.map((i, n) => {
+    const [owner, name] = i.repo.split("/");
+    return `p${n}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { pullRequest(number: ${Number(i.number)}) { headRefOid mergeable ${CHECKS} } }`;
+  }).join(" ")} }`;
+  const data = (await ghJson(["api", "graphql", "-f", `query=${query}`]))?.data ?? {};
+  const got = new Map(open.map((i, n) => [i, data[`p${n}`]?.pullRequest]));
+  return items.map((i) => {
+    const pr = got.get(i);
+    if (!pr) return i;
+    const contexts = pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? [];
+    const statusCheckRollup = contexts.map(({ checkSuite, ...c }) => ({ ...c, workflowName: checkSuite?.workflowRun?.workflow?.name }));
+    return { ...i, headRefOid: pr.headRefOid, mergeable: pr.mergeable, statusCheckRollup };
+  });
+}
+
 // One loader per tab. `scope` is { repo } or { owners: [...] }, `q` the filters.
 export const load = {
   async issues({ repo, owners }, { state, mine, milestone }) {
@@ -111,7 +134,7 @@ export const load = {
     const args = ["search", "prs", ...owners.flatMap((o) => ["--owner", o]), "--state", state === "merged" ? "closed" : state, "--sort", "updated", "--limit", "100", "--json", SEARCH_PR];
     if (state === "merged") args.push("--merged");
     if (mine) args.push("--author", "@me");
-    return norm(await ghJson(args));
+    return withMergeState(norm(await ghJson(args)));
   },
   async actions({ repo }, { branch, failing }) {
     const args = ["run", "list", "-R", repo, "--limit", "50", "--json", RUN];
