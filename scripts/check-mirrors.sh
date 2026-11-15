@@ -17,6 +17,7 @@ PAIRS=(
   "mods/git-remote/diffview.js mods/review/diffview.js"
   "mods/git-remote/startagent.js mods/review/startagent.js"
   "mods/agent-info/probe.js mods/agents-plus/probe.js"
+  "mods/git-remote/skilllink.js mods/worktree-plus/skilllink.js"
 )
 
 body() { grep -v '^// Mirror of ' "$1"; }
