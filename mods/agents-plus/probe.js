@@ -197,7 +197,7 @@ reduce (inputs | fromjson? | select(type == "object")) as $e ($prev[0].s // {};
 const FIN = String.raw`
 def fin: del(.seen, .titled, .prPending)
   | .touched = ((.touched // {}) | keys)
-  | (if .window == null then .window = $models[(.model // "") | split("/") | last | sub(":.*$"; "")].window else . end);
+  | (if .window == null then .window = $models[(.model // "") | split("/") | (last // "") | sub(":.*$"; "")].window else . end);
 `;
 
 // The saved states of one agent's files → what PROBE prints.
