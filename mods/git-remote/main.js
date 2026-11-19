@@ -139,6 +139,11 @@ export default class GitHub extends View {
     const user = this.declared[key] ?? null;
     return user && (!on || this.logins.some((l) => l.login === user)) ? user : null;
   }
+  // The account a folder on another machine names that this computer's gh isn't logged in to: it is skipped, so say so.
+  unusableDeclared(key, on) {
+    const user = this.declared[key] ?? null;
+    return user && on && !this.logins.some((l) => l.login === user) ? user : null;
+  }
 
   // Act as the gh account the focused folder wants: the pick, else its .envrc, else gh's active one, resolved to a
   // name each time so the chip, the cache keys and the gh calls agree even when something flips gh's active account.
@@ -170,9 +175,11 @@ export default class GitHub extends View {
     const { cwd, on, space } = this.where();
     if (!cwd) return;
     const key = folderKey(cwd, on);
-    const dir = folderKey(spaces().find((s) => s.id === space)?.folder ?? cwd, on);
+    const base = folderKey(spaces().find((s) => s.id === space)?.folder ?? cwd, on);
+    // The pick covers the Space's folder; a pane working outside it (another repo opened from the same Space) keeps its own.
+    const dir = key === base || key.startsWith(`${base}/`) ? base : key;
     openOverlay({ mod: "git-remote", kind: "popup", width: 280, height: 64 + (this.logins.length + 1) * 46, at: "pointer",
-      props: { accountMenu: { dir, picked: this.chosenUser(key) ?? "", declared: this.declaredFor(key, on), logins: this.logins } } });
+      props: { accountMenu: { dir, picked: this.chosenUser(key) ?? "", declared: this.declaredFor(key, on), unusable: this.unusableDeclared(key, on), logins: this.logins } } });
   }
 
   async follow() {
@@ -485,9 +492,10 @@ export default class GitHub extends View {
         .when(this.logins.length > 1, (x) => {
           const { cwd, on } = this.where(), key = cwd ? folderKey(cwd, on) : null, picked = key ? this.chosenUser(key) : null;
           const how = picked ? "手動指定" : key && this.declaredFor(key, on) ? "由 .envrc 指定" : "gh 目前帳號";
+          const skipped = !picked && key ? this.unusableDeclared(key, on) : null;
           return x.child(h_flex().id("acct").flex_none().max_w(120).h(30).px(8).gap(5).items_center().rounded(6).border_1().border_color(t.border).bg(t.background)
             .text_size(12).text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover))
-            .tooltip(`GitHub 帳號：${this.account?.login ?? "?"}（${how}）\n點擊選擇帳號`)
+            .tooltip(`GitHub 帳號：${this.account?.login ?? "?"}（${how}）${skipped ? `\n.envrc 指定 ${skipped}，但本機 gh 沒有登入此帳號，已略過` : ""}\n點擊選擇帳號`)
             .on_click(() => this.openAccountMenu())
             .child(glyph("user", 12, t.muted))
             .child(div().min_w(0).truncate().child(this.account?.login ?? "?"))
@@ -691,7 +699,7 @@ export default class GitHub extends View {
     return v_flex().id("account-menu").size_full().bg(t.popover).text_color(t.foreground)
       .child(div().px(12).pt(10).pb(6).text_size(12.5).font_semibold().child("選擇 GitHub 帳號"))
       .child(v_flex().px(4).pb(6)
-        .child(row("acct-auto", "自動", m.declared ? `依 .envrc：${m.declared}` : `gh 目前帳號：${active ?? "?"}`, m.picked === "", ""))
+        .child(row("acct-auto", "自動", m.unusable ? `.envrc 指定 ${m.unusable}，本機 gh 未登入，已略過` : m.declared ? `依 .envrc：${m.declared}` : `gh 目前帳號：${active ?? "?"}`, m.picked === "", ""))
         .child(div().mx(10).my(4).h(1).bg(t.border))
         .children(m.logins.map((l) => row(`acct-${l.login}`, l.login, [l.active && "gh 目前帳號", m.declared === l.login && ".envrc 指定"].filter(Boolean).join(" · ") || "已登入", m.picked === l.login, l.login))));
   }
