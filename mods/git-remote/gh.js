@@ -40,10 +40,11 @@ export async function loginsOf() {
 }
 
 // The account a folder declares for itself: the nearest .envrc (this folder or above, on the folder's machine) that
-// sets GH_TOKEN from `gh auth token --user <name>`, the convention direnv users already have. Null when none does;
+// sets GH_TOKEN from `gh auth token --user <name>`, the convention direnv users already have. Commented lines don't
+// count (a note that mentions the command is not the assignment). Null when none does;
 // undefined when the machine could not be asked.
 export async function declaredUser(folder, on = null) {
-  const script = 'd=$1; while [ -n "$d" ] && [ "$d" != / ]; do f="$d/.envrc"; if [ -f "$f" ]; then u=$(sed -n \'s/.*gh auth token --user[ =]\\([A-Za-z0-9-]*\\).*/\\1/p\' "$f" | head -1); [ -n "$u" ] && { echo "$u"; exit 0; }; fi; d=$(dirname "$d"); done';
+  const script = 'd=$1; while [ -n "$d" ] && [ "$d" != / ]; do f="$d/.envrc"; if [ -f "$f" ]; then u=$(sed -n \'/^[[:space:]]*#/!s/.*gh auth token --user[ =]\\([A-Za-z0-9-]*\\).*/\\1/p\' "$f" | head -1); [ -n "$u" ] && { echo "$u"; exit 0; }; fi; d=$(dirname "$d"); done';
   const r = await exec("sh", ["-c", script, "sh", folder], { on }).catch(() => null);
   if (r?.code !== 0) return undefined;
   return r.stdout.trim() || null;
