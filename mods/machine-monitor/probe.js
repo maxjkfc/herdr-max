@@ -37,6 +37,32 @@ esac
 df -Pk "$vol" | awk 'NR==2{print "disktotal=" $2 + 0; print "diskavail=" $4 + 0}'
 `;
 
+// The details popup runs PROBE plus this: hostname, kernel and the five busiest processes by CPU and by
+// memory (`topcpu=` / `topmem=` lines of `cpu%|mem%|name`). Only when the popup is open, not on every poll.
+export const DETAIL_PROBE = PROBE + String.raw`
+echo "host=$(hostname)"
+echo "kernel=$(uname -r)"
+procs=$(ps -eo pcpu=,pmem=,comm= 2>/dev/null | awk '{c=$1; m=$2; $1=$2=""; sub(/^ +/, ""); n=$0; sub(/.*\//, "", n); print c "|" m "|" n}')
+echo "$procs" | sort -t'|' -k1,1 -rn | head -5 | sed 's/^/topcpu=/'
+echo "$procs" | sort -t'|' -k2,2 -rn | head -5 | sed 's/^/topmem=/'
+`;
+
+// Host, kernel and process lists from DETAIL_PROBE's output; lists are empty when `ps` gave nothing.
+export function parseDetail(stdout) {
+  const out = { host: "", kernel: "", topCpu: [], topMem: [] };
+  const proc = (s) => {
+    const [cpu, mem, ...name] = s.split("|");
+    return Number.isFinite(Number(cpu)) && Number.isFinite(Number(mem)) && name.length ? { cpu: Number(cpu), mem: Number(mem), name: name.join("|") } : null;
+  };
+  for (const line of String(stdout ?? "").split("\n")) {
+    if (line.startsWith("host=")) out.host = line.slice(5).trim();
+    else if (line.startsWith("kernel=")) out.kernel = line.slice(7).trim();
+    else if (line.startsWith("topcpu=")) { const p = proc(line.slice(7)); if (p) out.topCpu.push(p); }
+    else if (line.startsWith("topmem=")) { const p = proc(line.slice(7)); if (p) out.topMem.push(p); }
+  }
+  return out;
+}
+
 const num = (v) => {
   const n = Number(v);
   return v !== undefined && v !== "" && Number.isFinite(n) ? n : null;
@@ -64,7 +90,9 @@ export function parseProbe(stdout) {
     loadPerCore: load[0] / cores,
     memPct: Math.round(((memTotal - memAvail) / memTotal) * 100),
     memTotalGb: memTotal / KB_GB,
+    memUsedGb: (memTotal - memAvail) / KB_GB,
     diskPct: Math.round(((diskTotal - diskAvail) / diskTotal) * 100),
+    diskTotalGb: diskTotal / KB_GB,
     diskFreeGb: diskAvail / KB_GB,
   };
 }

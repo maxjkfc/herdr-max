@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { PROBE, fmtUptime, parseProbe, watchedList } from "../mods/machine-monitor/probe.js";
+import { DETAIL_PROBE, PROBE, fmtUptime, parseDetail, parseProbe, watchedList } from "../mods/machine-monitor/probe.js";
 
 const linux = `os=Linux
 up=1795213
@@ -52,4 +52,27 @@ test("watched list is null until saved, and drops junk entries", () => {
   expect(watchedList(undefined)).toBeNull();
   expect(watchedList(["ody", "", 3, "macmini"])).toEqual(["ody", "macmini"]);
   expect(watchedList([])).toEqual([]);
+});
+
+test("detail answer keeps the kernel, host and process names that contain spaces or pipes", () => {
+  const d = parseDetail(`host=box
+kernel=6.1.0
+topcpu=36.4|0.1|Open Design Hel
+topcpu=not-a-number|1|junk
+topmem=2.5|16.7|odd|name
+`);
+  expect(d.host).toBe("box");
+  expect(d.kernel).toBe("6.1.0");
+  expect(d.topCpu).toEqual([{ cpu: 36.4, mem: 0.1, name: "Open Design Hel" }]);
+  expect(d.topMem).toEqual([{ cpu: 2.5, mem: 16.7, name: "odd|name" }]);
+});
+
+test("the real detail probe adds host and process lists to the readout", async () => {
+  if (process.platform !== "darwin" && process.platform !== "linux") return;
+  const out = await Bun.$`sh -c ${DETAIL_PROBE}`.text();
+  expect(parseProbe(out)).not.toBeNull();
+  const d = parseDetail(out);
+  expect(d.host).not.toBe("");
+  expect(d.topCpu.length).toBeGreaterThan(0);
+  expect(d.topCpu.length).toBeLessThanOrEqual(5);
 });
