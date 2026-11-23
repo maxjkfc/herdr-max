@@ -4,13 +4,14 @@
 // a details popup for that machine (load history, RAM / disk figures, busiest processes), refreshed
 // every 5s while it is open.
 
-import { View, div } from "gpui-kit";
+import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { closeOverlay, exec, machines, notify, openOverlay, props, run, setShared, shared, theme, window } from "herdr";
 import { RANGES, limitsOf, step } from "./alerts.js";
 import { DETAIL_PROBE, PROBE, fmtUptime, parseDetail, parseProbe, watchedList } from "./probe.js";
 
 const KEY = "machine-monitor.machines";
+const FOLD_KEY = "machine-monitor.folded"; // localStorage: "1" when the sidebar block is folded
 const ALERT_KEY = "machine-monitor.alerts"; // localStorage: name → { disk, uptime } already notified
 const LIMITS_KEY = "machine-monitor.limits"; // shared: { diskPct, uptimeDays, pollSec }, set in the ⚙ picker
 const TICK_MS = 5_000;
@@ -35,6 +36,7 @@ const registered = () => machines().map((m) => m.name).filter(Boolean);
 export default class MachineMonitor extends View {
   init(_props, cx) {
     this.state = new Map(); // name → { busy, at (last poll start), stats, error }
+    this.folded = localStorage.getItem(FOLD_KEY) === "1";
     if (props()?.machine) {
       this.handle = cx.focus_handle();
       cx.timer.after(40, () => this.handle.focus());
@@ -215,9 +217,15 @@ export default class MachineMonitor extends View {
     return frame.child(head).child(body).child(foot);
   }
 
+  // Status light of one machine: worst of load, RAM and SSD; grey while reading, red when unreachable.
+  dotColor(t, st) {
+    const s = st?.stats;
+    return s ? tone(t, Math.max(s.loadPerCore * 100, s.memPct, diskLevel(s.diskPct)), 80, 92) : st?.busy || !st ? t.dim : t.blocked;
+  }
+
   machineRow(t, name, st) {
     const s = st?.stats;
-    const dot = s ? tone(t, Math.max(s.loadPerCore * 100, s.memPct, diskLevel(s.diskPct)), 80, 92) : st?.busy || !st ? t.dim : t.blocked;
+    const dot = this.dotColor(t, st);
     const metric = (label, value, color) => h_flex().gap(3).flex_none()
       .child(div().text_color(t.dim).child(label))
       .child(div().text_color(color).child(value));
@@ -235,27 +243,41 @@ export default class MachineMonitor extends View {
         : div().pl(12).text_size(10.5).text_color(st && !st.busy ? t.blocked : t.dim).truncate().child(st && !st.busy ? `無法連線 · ${st.error ?? ""}` : "讀取中…"));
   }
 
-  // The block is as tall as its machines (header + a row each, or one line of hint when none are watched).
+  // The block is as tall as its machines (header + a row each, or one line of hint when none are watched);
+  // folded, only the header.
   syncHeight(count) {
-    if (count === this.lastCount) return;
-    this.lastCount = count;
-    const px = HEADER_PX + (count ? Math.min(count, MAX_ROWS) * ROW_PX : 28) + 6;
+    const key = `${this.folded ? 1 : 0}:${count}`;
+    if (key === this.lastKey) return;
+    this.lastKey = key;
+    const px = this.folded ? HEADER_PX : HEADER_PX + (count ? Math.min(count, MAX_ROWS) * ROW_PX : 28) + 6;
     run("layout.resize", { id: "machines", px });
   }
 
   renderSidebar(t) {
     const watched = watchedList(shared(KEY)) ?? [];
     this.syncHeight(watched.length);
-    return v_flex().size_full().min_h(0).text_color(t.foreground)
-      .child(h_flex().id("mm-header").h(28).flex_none().pl(12).pr(10).items_center().justify_between().text_size(11).text_color(t.dim)
+    const header = h_flex().id("mm-header").h(HEADER_PX).flex_none().pl(12).pr(10).items_center().justify_between().text_size(11).text_color(t.dim)
+      .cursor_pointer().hover((x) => x.bg(t.hover))
+      .on_click((_e, cx) => {
+        this.folded = !this.folded;
+        localStorage.setItem(FOLD_KEY, this.folded ? "1" : "0");
+        this.syncHeight(watched.length);
+        cx.notify();
+      })
+      .child(h_flex().gap(6).items_center()
+        .child(svg(`mods/workspace-chrome/chevron-${this.folded ? "right" : "down"}.svg`).size(11).flex_none())
         .child("Machines")
-        .child(div().id("mm-pick").px(8).py(2).rounded(5).cursor_pointer().bg(t.surface).border_1().border_color(t.border).text_color(t.muted)
-          .hover((x) => x.bg(t.hover)).tooltip("選擇要監控的機器、調整警告門檻與同步間隔")
-          .on_click(() => this.openPicker()).child("⚙ 設定")))
-      .child(v_flex().id("mm-list").flex_1().min_h(0).overflow_y_scrollbar()
+        // Folded, the machines still show as one status light each.
+        .when(this.folded, (el) => el.children(watched.map((name) => div().size(6).rounded(3).flex_none().bg(this.dotColor(t, this.state.get(name)))))))
+      .child(div().id("mm-pick").px(8).py(2).rounded(5).cursor_pointer().bg(t.surface).border_1().border_color(t.border).text_color(t.muted)
+        .hover((x) => x.bg(t.hover)).tooltip("選擇要監控的機器、調整警告門檻與同步間隔")
+        .on_click((_e, cx) => { cx.stop_propagation(); this.openPicker(); }).child("⚙ 設定"));
+    return v_flex().size_full().min_h(0).text_color(t.foreground)
+      .child(header)
+      .when(!this.folded, (el) => el.child(v_flex().id("mm-list").flex_1().min_h(0).overflow_y_scrollbar()
         .children(watched.length
           ? watched.map((name) => this.machineRow(t, name, this.state.get(name)))
-          : [div().px(12).py(4).text_size(11).text_color(t.dim).child("尚未選擇機器 · 按右上角「⚙ 設定」")]));
+          : [div().px(12).py(4).text_size(11).text_color(t.dim).child("尚未選擇機器 · 按右上角「⚙ 設定」")])));
   }
 
   // `−n … value … +n` row for one number of LIMITS_KEY.
@@ -285,10 +307,20 @@ export default class MachineMonitor extends View {
       .children(names.length
         ? names.map((name) => {
             const on = watched.includes(name);
+            const asking = this.confirming === name;
+            // Buttons inside the row must not also toggle it.
+            const btn = (id, label, color, act) => div().id(`mm-${id}-${name}`).px(8).h(20).flex().items_center().rounded(5).text_size(11)
+              .border_1().border_color(color).text_color(color).cursor_pointer().hover((x) => x.bg(t.hover))
+              .on_click((_e, cx) => { cx.stop_propagation(); act(cx); }).child(label);
             return h_flex().id(`mm-opt-${name}`).h(26).px(8).gap(8).items_center().rounded(6).cursor_pointer()
               .hover((x) => x.bg(t.hover)).on_click(() => toggle(name))
               .child(div().text_color(on ? t.accent : t.dim).child(on ? "☑" : "☐"))
-              .child(div().flex_1().truncate().child(name));
+              .child(div().flex_1().truncate().child(name))
+              .when(on && !asking, (el) => el.child(btn("rm", "移除", t.dim, (cx) => { this.confirming = name; cx.notify(); })))
+              .when(on && asking, (el) => el
+                .child(div().text_size(11).text_color(t.blocked).child("不再監控？"))
+                .child(btn("yes", "確定", t.blocked, (cx) => { this.confirming = null; toggle(name); cx.notify(); }))
+                .child(btn("no", "取消", t.dim, (cx) => { this.confirming = null; cx.notify(); })));
           })
         : [div().text_size(11).text_color(t.dim).child("沒有已登錄的機器 · hc machine add <ssh 名稱>")])
       .child(div().text_size(10.5).text_color(t.dim).child("清單沒有你要的機器？先登錄：側欄左下 Add machine，或終端機 hc machine add <名稱>"))
