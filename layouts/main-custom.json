@@ -49,6 +49,17 @@
               "min": 90
             },
             {
+              "id": "machines",
+              "type": "block",
+              "content": {
+                "mod": "machine-monitor"
+              },
+              "size": {
+                "px": 120
+              },
+              "min": 28
+            },
+            {
               "id": "quota",
               "type": "block",
               "content": {

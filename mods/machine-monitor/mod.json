@@ -1,0 +1,5 @@
+{
+  "place": "none",
+  "title": "Machines",
+  "overlay": { "kind": "popup", "width": 280, "height": 190 }
+}

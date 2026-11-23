@@ -49,6 +49,12 @@ A customized [Herdr](https://herdr.dev) desktop layout (`main-custom`) and mod s
 - **Click the readout** to open the `system-monitor` popup: CPU / GPU / RAM tiles, SSD, temperature, power, fans, and local / Tailscale / public IPv4 (the public IP is looked up through `api.ipify.org` only when the popup opens or is refreshed).
 - The popup also sets the **refresh interval** (2s / 5s / 8s / 15s / 30s / manual) and has buttons that open **Activity Monitor** or **macmon** in a new Herdr tab.
 
+### 4a. `machine-monitor` — Uptime and Load of Other Machines (sidebar, above Quotas)
+- One block in the sidebar lists the machines you pick (from `hc machine ls`): a status dot, **uptime** (`up 4d 21h`), **Load** (1-minute load average), **RAM %** and **SSD %**. Colors go green / amber / red by load per core, RAM and disk. Hover a row for cores, 1/5/15-minute load, total RAM and free disk. A machine that cannot be reached shows the error instead.
+- **Choose which machines**: click the `⚙` in the block's header for a checklist of the registered machines. The choice is saved in `shared("machine-monitor.machines")`. On first run it watches the machines registered at that moment; machines you never tick are never contacted.
+- Reads run on each machine through herdr-core (`exec(..., { on })`), one small POSIX `sh` script (`mods/machine-monitor/probe.js`) for Linux or macOS: nothing to install there. Polls every `30s`, only while the window is active. macOS RAM counts free + inactive + speculative pages as available, so it can read a little higher than Activity Monitor's "Memory Used".
+- The block is `120px` tall in `layouts/main-custom.json` (two machines); more rows scroll.
+
 ### 4b. `toast-plus` — Restyled Notifications
 - Rounded card with a level-colored border, accent strip, and icon badge. It is not a copy of Herdr's `toast` any more: `layouts/main-custom.json` selects it with the root key `"toast": "toast-plus"` (Herdr 0.1.15+), so Herdr updating or resetting its shipped `toast` does not touch it. Where a toast appears is decided by Herdr and cannot be changed from a mod.
 
