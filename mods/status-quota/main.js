@@ -350,35 +350,20 @@ export default class StatusQuota extends View {
             .gap(8)
             .items_center()
             .children(
-              items.map((it) => {
-                const segTotal = Math.floor(216 / items.length);
-                const fillW = Math.max(2, Math.round((segTotal * it.remaining) / 100));
-                return v_flex()
+              items.map((it) =>
+                h_flex()
                   .flex_1()
-                  .gap(2)
+                  .items_center()
+                  .justify_between()
+                  .child(div().text_size(10).text_color(t.dim).child(it.label))
                   .child(
-                    h_flex()
-                      .items_center()
-                      .justify_between()
-                      .child(div().text_size(10).text_color(t.dim).child(it.label))
-                      .child(
-                        div()
-                          .text_size(10.5)
-                          .font_semibold()
-                          .text_color(pctColor(t, it.remaining))
-                          .child(`${it.remaining}%`)
-                      )
+                    div()
+                      .text_size(10.5)
+                      .font_semibold()
+                      .text_color(pctColor(t, it.remaining))
+                      .child(`${it.remaining}%`)
                   )
-                  .child(
-                    h_flex()
-                      .w_full()
-                      .h(3.5)
-                      .rounded(2)
-                      .bg(t.surface)
-                      .overflow_hidden()
-                      .child(div().h_full().w(fillW).rounded(2).bg(barColor(t, it.remaining)))
-                  );
-              })
+              )
             )
         )
       );
