@@ -113,7 +113,7 @@ export default class StatusQuota extends View {
     if (key === this.lastAutoKey) return;
     this.lastAutoKey = key;
     const n = Math.max(1, count);
-    const px = this.folded ? HEADER_PX : HEADER_PX + 8 + n * ROW_PX + (n - 1) * 3;
+    const px = this.folded ? HEADER_PX + 8 : HEADER_PX + 16 + n * ROW_PX + (n - 1) * 3;
     run("layout.resize", { id: "quota", px });
   }
 
@@ -418,15 +418,22 @@ export default class StatusQuota extends View {
       .size_full()
       .min_h(0)
       .bg(t.chrome)
-      .border_t(1)
-      .border_color(t.border)
+      .px(8)
+      .py(4)
       .text_size(12)
       .child(
+        v_flex()
+          .flex_1()
+          .min_h(0)
+          .rounded(8)
+          .bg(t.surface)
+          .overflow_hidden()
+          .child(
         h_flex()
           .id("sidebar-quota-header")
           .h(HEADER_PX)
           .flex_none()
-          .pl(16)
+          .pl(8)
           .pr(10)
           .items_center()
           .justify_between()
@@ -511,6 +518,7 @@ export default class StatusQuota extends View {
                   ]
             )
         )
+      )
       );
   }
 }

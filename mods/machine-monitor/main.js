@@ -249,14 +249,14 @@ export default class MachineMonitor extends View {
     const key = `${this.folded ? 1 : 0}:${count}`;
     if (key === this.lastKey) return;
     this.lastKey = key;
-    const px = this.folded ? HEADER_PX : HEADER_PX + (count ? Math.min(count, MAX_ROWS) * ROW_PX : 28) + 6;
+    const px = this.folded ? HEADER_PX + 8 : HEADER_PX + (count ? Math.min(count, MAX_ROWS) * ROW_PX : 28) + 14;
     run("layout.resize", { id: "machines", px });
   }
 
   renderSidebar(t) {
     const watched = watchedList(shared(KEY)) ?? [];
     this.syncHeight(watched.length);
-    const header = h_flex().id("mm-header").h(HEADER_PX).flex_none().pl(16).pr(10).items_center().justify_between().text_size(11.5).font_medium().text_color(t.dim)
+    const header = h_flex().id("mm-header").h(HEADER_PX).flex_none().pl(8).pr(10).items_center().justify_between().text_size(11.5).font_medium().text_color(t.dim)
       .cursor_pointer().hover((x) => x.bg(t.hover))
       .on_click((_e, cx) => {
         this.folded = !this.folded;
@@ -268,16 +268,17 @@ export default class MachineMonitor extends View {
         .child("Machines")
         // Folded, the machines still show as one status light each.
         .when(this.folded, (el) => el.children(watched.map((name) => div().size(6).rounded(3).flex_none().bg(this.dotColor(t, this.state.get(name)))))))
-      .child(h_flex().gap(6).items_center().child(div().id("mm-pick").px(8).py(2).rounded(5).cursor_pointer().bg(t.surface).border_1().border_color(t.border).text_color(t.muted)
+      .child(h_flex().gap(6).items_center().child(div().id("mm-pick").px(8).py(2).rounded(5).cursor_pointer().bg(t.chrome).border_1().border_color(t.border).text_color(t.muted)
         .hover((x) => x.bg(t.hover)).tooltip("選擇要監控的機器、調整警告門檻與同步間隔")
         .on_click((_e, cx) => { cx.stop_propagation(); this.openPicker(); }).child("⚙ 設定"))
         .child(svg(`mods/workspace-chrome/chevron-${this.folded ? "right" : "down"}.svg`).size(11).flex_none()));
-    return v_flex().size_full().min_h(0).text_color(t.foreground).border_t(1).border_color(t.border)
+    return v_flex().size_full().min_h(0).px(8).py(4).text_color(t.foreground)
+      .child(v_flex().flex_1().min_h(0).rounded(8).bg(t.surface).overflow_hidden()
       .child(header)
       .when(!this.folded, (el) => el.child(v_flex().id("mm-list").flex_1().min_h(0).overflow_y_scrollbar()
         .children(watched.length
           ? watched.map((name) => this.machineRow(t, name, this.state.get(name)))
-          : [div().px(12).py(4).text_size(11).text_color(t.dim).child("尚未選擇機器 · 按右上角「⚙ 設定」")])));
+          : [div().px(12).py(4).text_size(11).text_color(t.dim).child("尚未選擇機器 · 按右上角「⚙ 設定」")]))));
   }
 
   // `−n … value … +n` row for one number of LIMITS_KEY.
