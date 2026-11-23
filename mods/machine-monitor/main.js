@@ -16,7 +16,7 @@ const ALERT_KEY = "machine-monitor.alerts"; // localStorage: name → { disk, up
 const LIMITS_KEY = "machine-monitor.limits"; // shared: { diskPct, uptimeDays, pollSec }, set in the ⚙ picker
 const TICK_MS = 5_000;
 const TIMEOUT_MS = 15_000;
-const HEADER_PX = 28;
+const HEADER_PX = 32;
 const ROW_PX = 42; // two text lines and padding
 const MAX_ROWS = 6; // the block stops growing here and scrolls, so it never squeezes the Spaces / Agents lists out
 const DETAIL_MS = 5_000;
@@ -256,7 +256,7 @@ export default class MachineMonitor extends View {
   renderSidebar(t) {
     const watched = watchedList(shared(KEY)) ?? [];
     this.syncHeight(watched.length);
-    const header = h_flex().id("mm-header").h(HEADER_PX).flex_none().pl(12).pr(10).items_center().justify_between().text_size(11).text_color(t.dim)
+    const header = h_flex().id("mm-header").h(HEADER_PX).flex_none().pl(16).pr(10).items_center().justify_between().text_size(11.5).font_medium().text_color(t.dim)
       .cursor_pointer().hover((x) => x.bg(t.hover))
       .on_click((_e, cx) => {
         this.folded = !this.folded;
@@ -265,14 +265,14 @@ export default class MachineMonitor extends View {
         cx.notify();
       })
       .child(h_flex().gap(6).items_center()
-        .child(svg(`mods/workspace-chrome/chevron-${this.folded ? "right" : "down"}.svg`).size(11).flex_none())
         .child("Machines")
         // Folded, the machines still show as one status light each.
         .when(this.folded, (el) => el.children(watched.map((name) => div().size(6).rounded(3).flex_none().bg(this.dotColor(t, this.state.get(name)))))))
-      .child(div().id("mm-pick").px(8).py(2).rounded(5).cursor_pointer().bg(t.surface).border_1().border_color(t.border).text_color(t.muted)
+      .child(h_flex().gap(6).items_center().child(div().id("mm-pick").px(8).py(2).rounded(5).cursor_pointer().bg(t.surface).border_1().border_color(t.border).text_color(t.muted)
         .hover((x) => x.bg(t.hover)).tooltip("選擇要監控的機器、調整警告門檻與同步間隔")
-        .on_click((_e, cx) => { cx.stop_propagation(); this.openPicker(); }).child("⚙ 設定"));
-    return v_flex().size_full().min_h(0).text_color(t.foreground)
+        .on_click((_e, cx) => { cx.stop_propagation(); this.openPicker(); }).child("⚙ 設定"))
+        .child(svg(`mods/workspace-chrome/chevron-${this.folded ? "right" : "down"}.svg`).size(11).flex_none()));
+    return v_flex().size_full().min_h(0).text_color(t.foreground).border_t(1).border_color(t.border)
       .child(header)
       .when(!this.folded, (el) => el.child(v_flex().id("mm-list").flex_1().min_h(0).overflow_y_scrollbar()
         .children(watched.length
