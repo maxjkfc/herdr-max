@@ -103,7 +103,7 @@ export default class StatusQuota extends View {
     if (key === this.lastAutoKey) return;
     this.lastAutoKey = key;
     const n = Math.max(1, count);
-    const px = this.folded ? 28 : 36 + n * 52 + (n - 1) * 3;
+    const px = this.folded ? 28 : 36 + n * 40 + (n - 1) * 3;
     run("layout.resize", { id: "quota", px });
   }
 
@@ -318,8 +318,8 @@ export default class StatusQuota extends View {
     return v_flex()
       .id(`quota-side-${p.id}`)
       .px(8)
-      .py(5)
-      .gap(4)
+      .py(4)
+      .gap(2)
       .rounded(7)
       .cursor_pointer()
       .hover((s) => s.bg(t.hover))
@@ -350,35 +350,20 @@ export default class StatusQuota extends View {
             .gap(8)
             .items_center()
             .children(
-              items.map((it) => {
-                const segTotal = Math.floor(216 / items.length);
-                const fillW = Math.max(2, Math.round((segTotal * it.remaining) / 100));
-                return v_flex()
+              items.map((it) =>
+                h_flex()
                   .flex_1()
-                  .gap(2)
+                  .items_center()
+                  .justify_between()
+                  .child(div().text_size(10).text_color(t.dim).child(it.label))
                   .child(
-                    h_flex()
-                      .items_center()
-                      .justify_between()
-                      .child(div().text_size(10).text_color(t.dim).child(it.label))
-                      .child(
-                        div()
-                          .text_size(10.5)
-                          .font_semibold()
-                          .text_color(pctColor(t, it.remaining))
-                          .child(`${it.remaining}%`)
-                      )
+                    div()
+                      .text_size(10.5)
+                      .font_semibold()
+                      .text_color(pctColor(t, it.remaining))
+                      .child(`${it.remaining}%`)
                   )
-                  .child(
-                    h_flex()
-                      .w_full()
-                      .h(3.5)
-                      .rounded(2)
-                      .bg(t.surface)
-                      .overflow_hidden()
-                      .child(div().h_full().w(fillW).rounded(2).bg(barColor(t, it.remaining)))
-                  );
-              })
+              )
             )
         )
       );
