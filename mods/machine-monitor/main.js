@@ -7,11 +7,12 @@
 import { View, div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { closeOverlay, exec, machines, notify, openOverlay, props, setShared, shared, theme, window } from "herdr";
-import { UPTIME_DAYS, step } from "./alerts.js";
+import { RANGES, limitsOf, step } from "./alerts.js";
 import { DETAIL_PROBE, PROBE, fmtUptime, parseDetail, parseProbe, watchedList } from "./probe.js";
 
 const KEY = "machine-monitor.machines";
 const ALERT_KEY = "machine-monitor.alerts"; // localStorage: name → { disk, uptime } already notified
+const LIMITS_KEY = "machine-monitor.limits"; // shared: { diskPct, uptimeDays }, set in the ⚙ picker
 const POLL_MS = 30_000;
 const TICK_MS = 5_000;
 const TIMEOUT_MS = 15_000;
@@ -19,8 +20,13 @@ const DETAIL_MS = 5_000;
 
 // Green / amber / red; not every theme defines `warning`, `working` is Herdr's amber.
 const tone = (t, v, warn, danger) => (v >= danger ? t.blocked : v >= warn ? t.warning ?? t.working : t.done);
-// Amber once a machine has been up for UPTIME_DAYS, else null (the caller's default color).
-const upWarn = (t, sec) => (sec >= UPTIME_DAYS * 86400 ? t.warning ?? t.working : null);
+const limits = () => limitsOf(shared(LIMITS_KEY));
+// Amber once a machine has been up for the limit's days, else null (the caller's default color).
+const upWarn = (t, sec) => (sec >= limits().uptimeDays * 86400 ? t.warning ?? t.working : null);
+// SSD: amber from 12 points under the limit (80% at the default 92%), red at it.
+const diskTone = (t, pct) => { const d = limits().diskPct; return tone(t, pct, d - 12, d); };
+// The same on the 80 / 92 scale `tone` uses elsewhere, to rank the SSD beside load and RAM.
+const diskLevel = (pct) => { const d = limits().diskPct; return pct >= d ? 100 : pct >= d - 12 ? 85 : 0; };
 
 const registered = () => machines().map((m) => m.name).filter(Boolean);
 
@@ -87,7 +93,7 @@ export default class MachineMonitor extends View {
   alert(name, stats) {
     let all = {};
     try { all = JSON.parse(localStorage.getItem(ALERT_KEY) ?? "{}") ?? {}; } catch {}
-    const { alerts, state } = step(name, stats, all[name]);
+    const { alerts, state } = step(name, stats, all[name], limits());
     all[name] = state;
     localStorage.setItem(ALERT_KEY, JSON.stringify(all));
     for (const a of alerts) notify({ ...a, level: "warning", timeout: 15000 });
@@ -95,7 +101,7 @@ export default class MachineMonitor extends View {
 
   openPicker() {
     const n = new Set([...registered(), ...(watchedList(shared(KEY)) ?? [])]).size;
-    openOverlay({ mod: "machine-monitor", kind: "popup", width: 280, height: 96 + Math.max(n, 1) * 30 });
+    openOverlay({ mod: "machine-monitor", kind: "popup", width: 320, height: 210 + Math.max(n, 1) * 30 });
   }
 
   openDetail(name) {
@@ -191,14 +197,14 @@ export default class MachineMonitor extends View {
       .child(h_flex().gap(8)
         .child(this.tile(t, "Load", s.load[0].toFixed(2), `/ ${s.cores} 核`, s.loadPerCore * 100, tone(t, s.loadPerCore * 100, 70, 100)))
         .child(this.tile(t, "RAM", s.memPct, "%", s.memPct, tone(t, s.memPct, 80, 92)))
-        .child(this.tile(t, "SSD", s.diskPct, "%", s.diskPct, tone(t, s.diskPct, 80, 92))))
+        .child(this.tile(t, "SSD", s.diskPct, "%", s.diskPct, diskTone(t, s.diskPct))))
       .child(this.card(t, "運行",
         this.line(t, "已運行", fmtUptime(s.upSec), upWarn(t, s.upSec)),
         this.line(t, "開機時間", since),
         this.line(t, "負載 1 / 5 / 15 分", s.load.map((x) => x.toFixed(2)).join(" / "))))
       .child(this.card(t, "記憶體 · 磁碟",
         this.line(t, "RAM 已用", `${gb(s.memUsedGb)} / ${gb(s.memTotalGb)}`, tone(t, s.memPct, 80, 92)),
-        this.line(t, "SSD 已用", `${gb(s.diskTotalGb - s.diskFreeGb)} / ${gb(s.diskTotalGb)}`, tone(t, s.diskPct, 80, 92)),
+        this.line(t, "SSD 已用", `${gb(s.diskTotalGb - s.diskFreeGb)} / ${gb(s.diskTotalGb)}`, diskTone(t, s.diskPct)),
         this.line(t, "SSD 剩餘", gb(s.diskFreeGb))))
       .child(this.procCard(t, "CPU 前五", info?.topCpu ?? []))
       .child(this.procCard(t, "記憶體前五", info?.topMem ?? []));
@@ -209,7 +215,7 @@ export default class MachineMonitor extends View {
 
   machineRow(t, name, st) {
     const s = st?.stats;
-    const dot = s ? tone(t, Math.max(s.loadPerCore * 100, s.memPct, s.diskPct), 80, 92) : st?.busy || !st ? t.dim : t.blocked;
+    const dot = s ? tone(t, Math.max(s.loadPerCore * 100, s.memPct, diskLevel(s.diskPct)), 80, 92) : st?.busy || !st ? t.dim : t.blocked;
     const metric = (label, value, color) => h_flex().gap(3).flex_none()
       .child(div().text_color(t.dim).child(label))
       .child(div().text_color(color).child(value));
@@ -223,7 +229,7 @@ export default class MachineMonitor extends View {
         ? h_flex().gap(10).pl(12).text_size(10.5)
           .child(metric("Load", s.load[0].toFixed(2), tone(t, s.loadPerCore * 100, 70, 100)))
           .child(metric("RAM", `${s.memPct}%`, tone(t, s.memPct, 80, 92)))
-          .child(metric("SSD", `${s.diskPct}%`, tone(t, s.diskPct, 80, 92)))
+          .child(metric("SSD", `${s.diskPct}%`, diskTone(t, s.diskPct)))
         : div().pl(12).text_size(10.5).text_color(st && !st.busy ? t.blocked : t.dim).truncate().child(st && !st.busy ? `無法連線 · ${st.error ?? ""}` : "讀取中…"));
   }
 
@@ -238,6 +244,21 @@ export default class MachineMonitor extends View {
         .children(watched.length
           ? watched.map((name) => this.machineRow(t, name, this.state.get(name)))
           : [div().px(12).py(4).text_size(11).text_color(t.dim).child("尚未選擇機器 · 按右上角 ⚙")]));
+  }
+
+  // `−n … value … +n` row for one number of LIMITS_KEY.
+  stepper(t, key, label, unit, deltas) {
+    const lim = limits();
+    const [lo, hi] = RANGES[key];
+    const set = (v) => setShared(LIMITS_KEY, { ...lim, [key]: Math.min(hi, Math.max(lo, v)) });
+    const btn = (d) => div().id(`mm-${key}-${d}`).w(28).h(22).flex().items_center().justify_center().rounded(5)
+      .bg(t.surface).border_1().border_color(t.border).text_size(11).cursor_pointer().hover((x) => x.bg(t.hover))
+      .on_click(() => set(lim[key] + d)).child(d > 0 ? `+${d}` : `${d}`);
+    return h_flex().items_center().gap(4).px(8)
+      .child(div().flex_1().text_color(t.muted).child(label))
+      .children(deltas.filter((d) => d < 0).map(btn))
+      .child(div().w(50).flex().justify_center().font_semibold().child(`${lim[key]}${unit}`))
+      .children(deltas.filter((d) => d > 0).map(btn));
   }
 
   renderPicker(t) {
@@ -258,6 +279,9 @@ export default class MachineMonitor extends View {
               .child(div().flex_1().truncate().child(name));
           })
         : [div().text_size(11).text_color(t.dim).child("沒有已登錄的機器 · hc machine add <ssh 名稱>")])
+      .child(div().mt(6).text_size(11).text_color(t.dim).child("警告通知的門檻"))
+      .child(this.stepper(t, "diskPct", "SSD 用量達", "%", [-5, -1, 1, 5]))
+      .child(this.stepper(t, "uptimeDays", "開機超過", " 天", [-7, -1, 1, 7]))
       .child(div().id("mm-done").mt(4).h(28).flex().items_center().justify_center().rounded(8).bg(t.surface)
         .border_1().border_color(t.border).font_semibold().cursor_pointer().hover((x) => x.bg(t.hover))
         .on_click(close).child("完成"));
