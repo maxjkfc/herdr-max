@@ -6,10 +6,12 @@
 
 import { View, div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { closeOverlay, exec, machines, openOverlay, props, setShared, shared, theme, window } from "herdr";
+import { closeOverlay, exec, machines, notify, openOverlay, props, setShared, shared, theme, window } from "herdr";
+import { UPTIME_DAYS, step } from "./alerts.js";
 import { DETAIL_PROBE, PROBE, fmtUptime, parseDetail, parseProbe, watchedList } from "./probe.js";
 
 const KEY = "machine-monitor.machines";
+const ALERT_KEY = "machine-monitor.alerts"; // localStorage: name → { disk, uptime } already notified
 const POLL_MS = 30_000;
 const TICK_MS = 5_000;
 const TIMEOUT_MS = 15_000;
@@ -17,6 +19,8 @@ const DETAIL_MS = 5_000;
 
 // Green / amber / red; not every theme defines `warning`, `working` is Herdr's amber.
 const tone = (t, v, warn, danger) => (v >= danger ? t.blocked : v >= warn ? t.warning ?? t.working : t.done);
+// Amber once a machine has been up for UPTIME_DAYS, else null (the caller's default color).
+const upWarn = (t, sec) => (sec >= UPTIME_DAYS * 86400 ? t.warning ?? t.working : null);
 
 const registered = () => machines().map((m) => m.name).filter(Boolean);
 
@@ -67,7 +71,7 @@ export default class MachineMonitor extends View {
       try {
         const r = await exec("sh", ["-c", PROBE], { on: name, timeout: TIMEOUT_MS });
         const stats = parseProbe(r.stdout);
-        if (stats) { st.stats = stats; st.error = null; }
+        if (stats) { st.stats = stats; st.error = null; this.alert(name, stats); }
         else { st.stats = null; st.error = r.stderr.trim().split("\n").pop() || r.stdout.match(/^error=(.*)$/m)?.[1] || `exit ${r.code}`; }
       } catch (e) {
         st.stats = null;
@@ -76,6 +80,17 @@ export default class MachineMonitor extends View {
       st.busy = false;
       cx.notify();
     });
+  }
+
+  // Notifies when SSD use or uptime crosses its line (alerts.js); what was already notified is kept
+  // in localStorage, so a restart doesn't repeat it.
+  alert(name, stats) {
+    let all = {};
+    try { all = JSON.parse(localStorage.getItem(ALERT_KEY) ?? "{}") ?? {}; } catch {}
+    const { alerts, state } = step(name, stats, all[name]);
+    all[name] = state;
+    localStorage.setItem(ALERT_KEY, JSON.stringify(all));
+    for (const a of alerts) notify({ ...a, level: "warning", timeout: 15000 });
   }
 
   openPicker() {
@@ -178,7 +193,7 @@ export default class MachineMonitor extends View {
         .child(this.tile(t, "RAM", s.memPct, "%", s.memPct, tone(t, s.memPct, 80, 92)))
         .child(this.tile(t, "SSD", s.diskPct, "%", s.diskPct, tone(t, s.diskPct, 80, 92))))
       .child(this.card(t, "運行",
-        this.line(t, "已運行", fmtUptime(s.upSec)),
+        this.line(t, "已運行", fmtUptime(s.upSec), upWarn(t, s.upSec)),
         this.line(t, "開機時間", since),
         this.line(t, "負載 1 / 5 / 15 分", s.load.map((x) => x.toFixed(2)).join(" / "))))
       .child(this.card(t, "記憶體 · 磁碟",
@@ -203,7 +218,7 @@ export default class MachineMonitor extends View {
       .child(h_flex().items_center().gap(6)
         .child(div().size(6).rounded(3).flex_none().bg(dot))
         .child(div().flex_1().min_w(0).truncate().text_size(12).font_semibold().child(name))
-        .child(div().flex_none().text_size(10.5).text_color(t.dim).child(s ? `up ${fmtUptime(s.upSec)}` : "")))
+        .child(div().flex_none().text_size(10.5).text_color((s && upWarn(t, s.upSec)) || t.dim).child(s ? `up ${fmtUptime(s.upSec)}` : "")))
       .child(s
         ? h_flex().gap(10).pl(12).text_size(10.5)
           .child(metric("Load", s.load[0].toFixed(2), tone(t, s.loadPerCore * 100, 70, 100)))
