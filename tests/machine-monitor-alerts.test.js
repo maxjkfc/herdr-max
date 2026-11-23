@@ -55,7 +55,9 @@ test("custom limits move both lines; the SSD re-arm gap follows the limit", () =
 
 test("saved limits are whole numbers inside their ranges, with defaults for anything off", () => {
   expect(limitsOf(undefined)).toEqual(DEFAULTS);
-  expect(limitsOf({ diskPct: 85.6, uptimeDays: "14" })).toEqual({ diskPct: 86, uptimeDays: 14 });
-  expect(limitsOf({ diskPct: 10, uptimeDays: 9999 })).toEqual({ diskPct: 50, uptimeDays: 365 });
+  expect(limitsOf({ diskPct: 85.6, uptimeDays: "14" })).toEqual({ diskPct: 86, uptimeDays: 14, pollSec: 30 });
+  expect(limitsOf({ diskPct: 10, uptimeDays: 9999 })).toEqual({ diskPct: 50, uptimeDays: 365, pollSec: 30 });
   expect(limitsOf({ diskPct: "x", uptimeDays: null })).toEqual(DEFAULTS);
+  expect(limitsOf({ pollSec: 1 }).pollSec).toBe(10);
+  expect(limitsOf({ pollSec: 5000 }).pollSec).toBe(600);
 });

@@ -12,8 +12,7 @@ import { DETAIL_PROBE, PROBE, fmtUptime, parseDetail, parseProbe, watchedList } 
 
 const KEY = "machine-monitor.machines";
 const ALERT_KEY = "machine-monitor.alerts"; // localStorage: name → { disk, uptime } already notified
-const LIMITS_KEY = "machine-monitor.limits"; // shared: { diskPct, uptimeDays }, set in the ⚙ picker
-const POLL_MS = 30_000;
+const LIMITS_KEY = "machine-monitor.limits"; // shared: { diskPct, uptimeDays, pollSec }, set in the ⚙ picker
 const TICK_MS = 5_000;
 const TIMEOUT_MS = 15_000;
 const DETAIL_MS = 5_000;
@@ -64,7 +63,7 @@ export default class MachineMonitor extends View {
     for (const name of [...this.state.keys()]) if (!watched.includes(name)) this.state.delete(name);
     for (const name of watched) {
       const st = this.state.get(name);
-      if (st?.busy || (st && Date.now() - st.at < POLL_MS)) continue;
+      if (st?.busy || (st && Date.now() - st.at < limits().pollSec * 1000)) continue;
       this.poll(name, cx);
     }
   }
@@ -101,7 +100,7 @@ export default class MachineMonitor extends View {
 
   openPicker() {
     const n = new Set([...registered(), ...(watchedList(shared(KEY)) ?? [])]).size;
-    openOverlay({ mod: "machine-monitor", kind: "popup", width: 320, height: 210 + Math.max(n, 1) * 30 });
+    openOverlay({ mod: "machine-monitor", kind: "popup", width: 320, height: 240 + Math.max(n, 1) * 30 });
   }
 
   openDetail(name) {
@@ -282,6 +281,7 @@ export default class MachineMonitor extends View {
       .child(div().mt(6).text_size(11).text_color(t.dim).child("警告通知的門檻"))
       .child(this.stepper(t, "diskPct", "SSD 用量達", "%", [-5, -1, 1, 5]))
       .child(this.stepper(t, "uptimeDays", "開機超過", " 天", [-7, -1, 1, 7]))
+      .child(this.stepper(t, "pollSec", "同步間隔", " 秒", [-30, -10, 10, 30]))
       .child(div().id("mm-done").mt(4).h(28).flex().items_center().justify_center().rounded(8).bg(t.surface)
         .border_1().border_color(t.border).font_semibold().cursor_pointer().hover((x) => x.bg(t.hover))
         .on_click(close).child("完成"));

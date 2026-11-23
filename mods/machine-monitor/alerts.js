@@ -5,8 +5,8 @@
 //            hovering around the line doesn't notify on every poll)
 //   uptime : up for `uptimeDays` or more; re-arms on the next reboot
 
-export const DEFAULTS = { diskPct: 92, uptimeDays: 28 };
-export const RANGES = { diskPct: [50, 99], uptimeDays: [1, 365] };
+export const DEFAULTS = { diskPct: 92, uptimeDays: 28, pollSec: 30 };
+export const RANGES = { diskPct: [50, 99], uptimeDays: [1, 365], pollSec: [10, 600] };
 export const DISK_GAP = 2;
 
 const DAY = 86400;
