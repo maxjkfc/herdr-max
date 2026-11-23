@@ -51,6 +51,16 @@ function barColor(t, rem) {
   return t.accent;
 }
 
+const HEADER_PX = 32;
+const ROW_PX = 46; // title line + number line, fixed so the panel height is exact
+
+function dotColor(t, rem) {
+  if (rem == null) return t.dim;
+  if (rem <= 10) return t.blocked ?? t.ansi1 ?? t.accent;
+  if (rem <= 30) return t.warning ?? t.ansi3 ?? t.accent;
+  return t.ansi2 ?? t.accent;
+}
+
 function sidebarItems(provider) {
   const items = provider.items ?? [];
   if (!provider.id?.startsWith("agy")) return items;
@@ -103,7 +113,7 @@ export default class StatusQuota extends View {
     if (key === this.lastAutoKey) return;
     this.lastAutoKey = key;
     const n = Math.max(1, count);
-    const px = this.folded ? 28 : 36 + n * 40 + (n - 1) * 3;
+    const px = this.folded ? HEADER_PX : HEADER_PX + 8 + n * ROW_PX + (n - 1) * 3;
     run("layout.resize", { id: "quota", px });
   }
 
@@ -318,7 +328,8 @@ export default class StatusQuota extends View {
     return v_flex()
       .id(`quota-side-${p.id}`)
       .px(8)
-      .py(4)
+      .h(ROW_PX)
+      .justify_center()
       .gap(2)
       .rounded(7)
       .cursor_pointer()
@@ -350,20 +361,27 @@ export default class StatusQuota extends View {
             .gap(8)
             .items_center()
             .children(
-              items.map((it) =>
-                h_flex()
+              items.map((it) => {
+                // "2h 21m (00:58)" -> "2h 21m"; skip when already reset
+                const eta = (it.resetText || "").split(" (")[0];
+                return h_flex()
                   .flex_1()
+                  .min_w(0)
                   .items_center()
-                  .justify_between()
+                  .gap(4)
+                  .child(div().size(6).flex_none().rounded(3).bg(dotColor(t, it.remaining)))
                   .child(div().text_size(10).text_color(t.dim).child(it.label))
                   .child(
                     div()
-                      .text_size(10.5)
+                      .text_size(12)
                       .font_semibold()
                       .text_color(pctColor(t, it.remaining))
                       .child(`${it.remaining}%`)
                   )
-              )
+                  .when(Boolean(eta) && eta !== "已重置", (el) =>
+                    el.child(div().truncate().text_size(9.5).text_color(t.dim).child(eta))
+                  );
+              })
             )
         )
       );
@@ -400,17 +418,20 @@ export default class StatusQuota extends View {
       .size_full()
       .min_h(0)
       .bg(t.chrome)
+      .border_t(1)
+      .border_color(t.border)
       .text_size(12)
       .child(
         h_flex()
           .id("sidebar-quota-header")
-          .h(28)
+          .h(HEADER_PX)
           .flex_none()
-          .pl(12)
+          .pl(16)
           .pr(10)
           .items_center()
           .justify_between()
-          .text_size(11)
+          .text_size(11.5)
+          .font_medium()
           .text_color(t.dim)
           .cursor_pointer()
           .hover((s) => s.bg(t.hover))
@@ -424,9 +445,6 @@ export default class StatusQuota extends View {
             h_flex()
               .gap(6)
               .items_center()
-              .child(
-                svg(`mods/workspace-chrome/chevron-${this.folded ? "right" : "down"}.svg`).size(11).flex_none()
-              )
               .child("Quotas")
               .when(Boolean(data?.updatedText), (el) =>
                 el.child(div().text_size(10).text_color(t.dim).child(data.updatedText))
@@ -465,6 +483,9 @@ export default class StatusQuota extends View {
                     this.openDetailPopup();
                   })
                   .child("⤢")
+              )
+              .child(
+                svg(`mods/workspace-chrome/chevron-${this.folded ? "right" : "down"}.svg`).size(11).flex_none().text_color(t.dim)
               )
           )
       )
