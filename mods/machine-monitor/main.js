@@ -103,7 +103,7 @@ export default class MachineMonitor extends View {
 
   openPicker() {
     const n = new Set([...registered(), ...(watchedList(shared(KEY)) ?? [])]).size;
-    openOverlay({ mod: "machine-monitor", kind: "popup", width: 320, height: 240 + Math.max(n, 1) * 30 });
+    openOverlay({ mod: "machine-monitor", kind: "popup", width: 320, height: 280 + Math.max(n, 1) * 30 });
   }
 
   openDetail(name) {
@@ -249,12 +249,13 @@ export default class MachineMonitor extends View {
     return v_flex().size_full().min_h(0).text_color(t.foreground)
       .child(h_flex().id("mm-header").h(28).flex_none().pl(12).pr(10).items_center().justify_between().text_size(11).text_color(t.dim)
         .child("Machines")
-        .child(div().id("mm-pick").px(6).rounded(4).cursor_pointer().hover((x) => x.bg(t.hover)).tooltip("選擇要監控的機器")
-          .on_click(() => this.openPicker()).child("⚙")))
+        .child(div().id("mm-pick").px(8).py(2).rounded(5).cursor_pointer().bg(t.surface).border_1().border_color(t.border).text_color(t.muted)
+          .hover((x) => x.bg(t.hover)).tooltip("選擇要監控的機器、調整警告門檻與同步間隔")
+          .on_click(() => this.openPicker()).child("⚙ 設定")))
       .child(v_flex().id("mm-list").flex_1().min_h(0).overflow_y_scrollbar()
         .children(watched.length
           ? watched.map((name) => this.machineRow(t, name, this.state.get(name)))
-          : [div().px(12).py(4).text_size(11).text_color(t.dim).child("尚未選擇機器 · 按右上角 ⚙")]));
+          : [div().px(12).py(4).text_size(11).text_color(t.dim).child("尚未選擇機器 · 按右上角「⚙ 設定」")]));
   }
 
   // `−n … value … +n` row for one number of LIMITS_KEY.
@@ -290,6 +291,7 @@ export default class MachineMonitor extends View {
               .child(div().flex_1().truncate().child(name));
           })
         : [div().text_size(11).text_color(t.dim).child("沒有已登錄的機器 · hc machine add <ssh 名稱>")])
+      .child(div().text_size(10.5).text_color(t.dim).child("清單沒有你要的機器？先登錄：側欄左下 Add machine，或終端機 hc machine add <名稱>"))
       .child(div().mt(6).text_size(11).text_color(t.dim).child("警告通知的門檻"))
       .child(this.stepper(t, "diskPct", "SSD 用量達", "%", [-5, -1, 1, 5]))
       .child(this.stepper(t, "uptimeDays", "開機超過", " 天", [-7, -1, 1, 7]))
