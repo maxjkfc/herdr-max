@@ -910,11 +910,18 @@ export default class SpacesPlus extends View {
       .size_full()
       .min_h(0)
       .bg(t.chrome)
+      .px(collapsed ? 0 : 8)
+      .py(collapsed ? 0 : 4)
       .text_size(13)
       .child(
+        v_flex()
+          .flex_1()
+          .min_h(0)
+          .when(!collapsed, (el) => el.rounded(8).bg(t.surface).overflow_hidden())
+          .child(
         h_flex()
           .h(31)
-          .pl(16)
+          .pl(collapsed ? 16 : 8)
           .pr(10)
           .items_center()
           .justify_between()
@@ -959,8 +966,8 @@ export default class SpacesPlus extends View {
         v_flex()
           .flex_1()
           .min_h(0)
-          .px(8)
-          .pb(14)
+          .px(collapsed ? 8 : 4)
+          .pb(collapsed ? 14 : 8)
           .overflow_y_scrollbar()
           .mode("always")
           .on_mouse_up("left", (_e, cx) => {
@@ -968,6 +975,7 @@ export default class SpacesPlus extends View {
             cx.notify();
           })
           .children(this.grouped(t, collapsed))
+      )
       );
   }
 }
