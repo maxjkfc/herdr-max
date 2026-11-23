@@ -6,7 +6,7 @@
 
 import { View, div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { closeOverlay, exec, machines, notify, openOverlay, props, setShared, shared, theme, window } from "herdr";
+import { closeOverlay, exec, machines, notify, openOverlay, props, run, setShared, shared, theme, window } from "herdr";
 import { RANGES, limitsOf, step } from "./alerts.js";
 import { DETAIL_PROBE, PROBE, fmtUptime, parseDetail, parseProbe, watchedList } from "./probe.js";
 
@@ -15,6 +15,9 @@ const ALERT_KEY = "machine-monitor.alerts"; // localStorage: name → { disk, up
 const LIMITS_KEY = "machine-monitor.limits"; // shared: { diskPct, uptimeDays, pollSec }, set in the ⚙ picker
 const TICK_MS = 5_000;
 const TIMEOUT_MS = 15_000;
+const HEADER_PX = 28;
+const ROW_PX = 42; // two text lines and padding
+const MAX_ROWS = 6; // the block stops growing here and scrolls, so it never squeezes the Spaces / Agents lists out
 const DETAIL_MS = 5_000;
 
 // Green / amber / red; not every theme defines `warning`, `working` is Herdr's amber.
@@ -232,8 +235,17 @@ export default class MachineMonitor extends View {
         : div().pl(12).text_size(10.5).text_color(st && !st.busy ? t.blocked : t.dim).truncate().child(st && !st.busy ? `無法連線 · ${st.error ?? ""}` : "讀取中…"));
   }
 
+  // The block is as tall as its machines (header + a row each, or one line of hint when none are watched).
+  syncHeight(count) {
+    if (count === this.lastCount) return;
+    this.lastCount = count;
+    const px = HEADER_PX + (count ? Math.min(count, MAX_ROWS) * ROW_PX : 28) + 6;
+    run("layout.resize", { id: "machines", px });
+  }
+
   renderSidebar(t) {
     const watched = watchedList(shared(KEY)) ?? [];
+    this.syncHeight(watched.length);
     return v_flex().size_full().min_h(0).text_color(t.foreground)
       .child(h_flex().id("mm-header").h(28).flex_none().pl(12).pr(10).items_center().justify_between().text_size(11).text_color(t.dim)
         .child("Machines")
