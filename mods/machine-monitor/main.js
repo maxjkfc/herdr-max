@@ -285,10 +285,20 @@ export default class MachineMonitor extends View {
       .children(names.length
         ? names.map((name) => {
             const on = watched.includes(name);
+            const asking = this.confirming === name;
+            // Buttons inside the row must not also toggle it.
+            const btn = (id, label, color, act) => div().id(`mm-${id}-${name}`).px(8).h(20).flex().items_center().rounded(5).text_size(11)
+              .border_1().border_color(color).text_color(color).cursor_pointer().hover((x) => x.bg(t.hover))
+              .on_click((_e, cx) => { cx.stop_propagation(); act(cx); }).child(label);
             return h_flex().id(`mm-opt-${name}`).h(26).px(8).gap(8).items_center().rounded(6).cursor_pointer()
               .hover((x) => x.bg(t.hover)).on_click(() => toggle(name))
               .child(div().text_color(on ? t.accent : t.dim).child(on ? "☑" : "☐"))
-              .child(div().flex_1().truncate().child(name));
+              .child(div().flex_1().truncate().child(name))
+              .when(on && !asking, (el) => el.child(btn("rm", "移除", t.dim, (cx) => { this.confirming = name; cx.notify(); })))
+              .when(on && asking, (el) => el
+                .child(div().text_size(11).text_color(t.blocked).child("不再監控？"))
+                .child(btn("yes", "確定", t.blocked, (cx) => { this.confirming = null; toggle(name); cx.notify(); }))
+                .child(btn("no", "取消", t.dim, (cx) => { this.confirming = null; cx.notify(); })));
           })
         : [div().text_size(11).text_color(t.dim).child("沒有已登錄的機器 · hc machine add <ssh 名稱>")])
       .child(div().text_size(10.5).text_color(t.dim).child("清單沒有你要的機器？先登錄：側欄左下 Add machine，或終端機 hc machine add <名稱>"))
